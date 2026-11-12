@@ -28,6 +28,8 @@ data class Weights(
     val redirection: Double = 0.0,
     val intimidate: Double = 0.0,
     val spread: Double = 0.0,
+    /** Por membro que aproveita um nucleo ativo (clima, terreno, Trick Room), ate 3. */
+    val core: Double = 0.75,
 ) {
     companion object {
         val SINGLES = Weights()
@@ -35,10 +37,14 @@ data class Weights(
         /** Em 2v2 hazards valem pouco; controle de velocidade, Fake Out e golpes em area valem muito. */
         val DOUBLES = Weights(
             hazards = 0.3, removal = 0.0, pivot = 0.5, priority = 0.5, setup = 0.5, fast = 0.75,
-            speedControl = 2.0, fakeOut = 1.5, redirection = 1.0, intimidate = 1.25, spread = 0.75,
+            speedControl = 2.0, fakeOut = 1.5, redirection = 1.0, intimidate = 1.25, spread = 0.75, core = 1.0,
         )
 
-        fun of(format: Format) = if (format == Format.DOUBLES) DOUBLES else SINGLES
+        /** Pesos lidos do arquivo de configuracao; sem eles valem os padroes acima. */
+        @Volatile
+        var configured: Map<Format, Weights> = emptyMap()
+
+        fun of(format: Format) = configured[format] ?: if (format == Format.DOUBLES) DOUBLES else SINGLES
     }
 }
 
@@ -48,8 +54,9 @@ data class Breakdown(
     val offense: Double,
     val roles: Double,
     val synergy: Double,
+    val cores: Double = 0.0,
 ) {
-    val total: Double get() = strength + defense + offense + roles + synergy
+    val total: Double get() = strength + defense + offense + roles + synergy + cores
 }
 
 class TeamScorer(private val meta: MetaSnapshot, val weights: Weights = Weights()) {
@@ -60,6 +67,7 @@ class TeamScorer(private val meta: MetaSnapshot, val weights: Weights = Weights(
         offense = Integer.bitCount(coverage(team)) * weights.coverage,
         roles = roles(team),
         synergy = synergy(team),
+        cores = Cores.active(team).sumOf { it.value } * weights.core,
     )
 
     /** (fracos, resistentes ou imunes) do time contra o tipo de ataque [attackType]. */

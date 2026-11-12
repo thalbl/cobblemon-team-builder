@@ -52,7 +52,7 @@ import kotlin.math.sin
  */
 class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
     private enum class Tab(val key: String) {
-        SUGGEST("tab.suggest"), TEAMS("tab.teams"), ANALYSIS("tab.analysis"), RAID("tab.raid"), SAVED("tab.saved")
+        SUGGEST("tab.suggest"), TEAMS("tab.teams"), ANALYSIS("tab.analysis"), RAID("tab.raid"), TRAINERS("tab.trainers"), SAVED("tab.saved")
     }
 
     private val lang: Lang get() = Lang.of(Minecraft.getInstance().languageManager.selected)
@@ -69,6 +69,16 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
 
     /** null = modo normal; senao o texto do chefe ("" = detectar pela raid proxima). */
     private var raidQuery: String? = null
+
+    /** Treinador do RCT selecionado na aba Treinadores, e a lista da busca de treinadores. */
+    private var trainerId: String? = null
+    private var trainerList: SearchResult? = null
+
+    /** Analise: false = trocas sugeridas, true = ameacas ao time. */
+    private var showThreats = false
+
+    /** Painel da direita: false = set sugerido, true = o que falta para montar o set. */
+    private var showChecklist = false
 
     /** Funcao escolhida pelo jogador, pela chave da forma normal do slot. */
     private val roleChoice = HashMap<String, String>()
@@ -103,6 +113,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         selected = selected.coerceIn(0, max(0, newState.team.size - 1))
 
         if (newState.raid == null) raidQuery = null
+        if (newState.trainer == null) trainerId = null
         if (newState.error == null && arrived.isNotEmpty()) clearInput()
         state = newState
         waiting = false
@@ -110,7 +121,8 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
     }
 
     fun acceptSearch(result: SearchResult) {
-        if (result.query == typed()) search = result
+        if (result.query != typed()) return
+        if (result.kind == "trainer") trainerList = result else search = result
     }
 
     private fun request(
@@ -130,7 +142,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         localError = null
         localNotice = null
         val roles = keys.map { roleChoice[baseKeyOf(it)] }
-        val body = BuilderRequest(keys, add, useParty, legendaries, megas, doubles, raidQuery, roles, apply)
+        val body = BuilderRequest(keys, add, useParty, legendaries, megas, doubles, raidQuery, roles, apply, trainerId)
         ClientPlayNetworking.send(RequestPayload(Network.GSON.toJson(body)))
     }
 
@@ -155,17 +167,40 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
 
     private fun openTab(next: Tab) {
         if (next == tab) return
-        val leavingRaid = tab == Tab.RAID
+        val leaving = tab == Tab.RAID || (tab == Tab.TRAINERS && trainerId != null)
         tab = next
         contentAt = Util.getMillis()
-        if (next == Tab.RAID) {
-            // Entrar na aba ja tenta achar a raid em que o jogador esta.
-            raidQuery = ""
-            request()
-        } else if (leavingRaid) {
-            raidQuery = null
-            request()
+        // A busca muda de sentido (Pokemon x treinadores): refaz para o texto atual.
+        sendSearch(typed())
+        when {
+            next == Tab.RAID -> {
+                // Entrar na aba ja tenta achar a raid em que o jogador esta.
+                raidQuery = ""
+                trainerId = null
+                request()
+            }
+            leaving -> {
+                raidQuery = null
+                trainerId = null
+                request()
+            }
         }
+    }
+
+    private fun sendSearch(text: String) {
+        searchSent = text
+        if (!ClientPlayNetworking.canSend(SearchPayload.TYPE)) return
+        when {
+            tab == Tab.TRAINERS -> ClientPlayNetworking.send(SearchPayload(Network.GSON.toJson(SearchRequest(text, "trainer"))))
+            text.length >= 2 && text.none { it in ",;+/" } -> ClientPlayNetworking.send(SearchPayload(Network.GSON.toJson(SearchRequest(text))))
+            else -> search = null
+        }
+    }
+
+    private fun chooseTrainer(id: String) {
+        trainerId = id
+        contentAt = Util.getMillis()
+        request()
     }
 
     private fun chooseRole(slot: SlotView, role: String) {
@@ -265,17 +300,11 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             typedAt = time
         }
         // Espera o jogador parar de digitar um instante antes de buscar.
-        if (text != searchSent && time - typedAt >= 120) {
-            searchSent = text
-            if (text.length >= 2 && text.none { it in ",;+/" } && ClientPlayNetworking.canSend(SearchPayload.TYPE)) {
-                ClientPlayNetworking.send(SearchPayload(Network.GSON.toJson(SearchRequest(text))))
-            } else {
-                search = null
-            }
-        }
+        if (text != searchSent && time - typedAt >= 120) sendSearch(text)
     }
 
     private fun searchResults(): List<SlotView> {
+        if (tab == Tab.TRAINERS) return emptyList()
         val s = search ?: return emptyList()
         val text = typed()
         return if (text.length >= 2 && s.query == text) s.results else emptyList()
@@ -338,6 +367,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             Tab.TEAMS -> teams(ui, s, top)
             Tab.ANALYSIS -> analysis(ui, s, top)
             Tab.RAID -> raid(ui, s, top)
+            Tab.TRAINERS -> trainers(ui, s, top)
             Tab.SAVED -> saved(ui, top)
         }
         advisor(ui, s)
@@ -367,9 +397,23 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             ui.hit(
                 x, y, w, 16,
                 Component.literal(t("tip.score", "%.1f".format(s.total), "%.1f".format(s.strength), "%.1f".format(s.defense),
-                    "%.1f".format(s.offense), "%.1f".format(s.roles), "%.1f".format(s.synergy))),
+                    "%.1f".format(s.offense), "%.1f".format(s.roles), "%.1f".format(s.synergy), "%.1f".format(s.coresScore))),
             )
             x += w + 10
+        }
+        // Nucleos ativos (chuva, Trick Room...): quem ativa e quem aproveita.
+        for (c in s.cores) {
+            val cw = ui.width(c.label)
+            ui.rect(x - 3, y + 3, cw + 6, 11, Palette.alpha(Palette.mix(Palette.CARD, Palette.CYAN, 0.25f), 1f))
+            ui.text(c.label, x, y + 4, Palette.CYAN)
+            ui.hit(
+                x - 3, y, cw + 6, 16,
+                Component.literal(t("core.title", c.label)).withStyle(ChatFormatting.AQUA)
+                    .append("\n").append(Component.literal(t("core.setters", c.setters.joinToString())).withStyle(ChatFormatting.GRAY))
+                    .append("\n").append(Component.literal(t("core.abusers", c.abusers.joinToString().ifEmpty { "-" })).withStyle(ChatFormatting.GRAY))
+                    .append("\n\n").append(Component.literal(t("core.hint")).withStyle(ChatFormatting.DARK_GRAY)),
+            )
+            x += cw + 10
         }
 
         // Opcoes, da direita para a esquerda.
@@ -542,7 +586,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
     }
 
     private fun tabColor(tb: Tab) = when (tb) {
-        Tab.RAID -> Palette.RAID
+        Tab.RAID, Tab.TRAINERS -> Palette.RAID
         Tab.SAVED -> Palette.CYAN
         else -> Palette.GOLD
     }
@@ -693,14 +737,70 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             )
         }
 
-        val swapTop = top + 9 + 2 * (ch + gap) + 3
-        val title = t("analysis.swaps")
-        ui.text(title, pad, swapTop, Palette.MUTED, 0.75f)
+        val swapTop = top + 9 + 2 * (ch + gap) + 5
         val w = columnWidth()
-        ui.text(t("column.pc"), pad + ui.width(title, 0.75f) + 6, swapTop, Palette.OWNED, 0.75f)
+        // Alterna entre trocas sugeridas e ameacas ao time.
+        var tx = pad
+        for ((threatMode, label) in listOf(false to t("analysis.swaps"), true to t("analysis.threats") + " (${s.threats.size})")) {
+            val active = showThreats == threatMode
+            val lw = ui.width(label, 0.75f) + 8
+            val hover = smooth("amode:$threatMode", if (ui.over(tx, swapTop - 2, lw, 10)) 1f else 0f)
+            ui.panel(
+                tx, swapTop - 2, lw, 10,
+                if (active) Palette.mix(Palette.CARD, Palette.GOLD, 0.2f) else Palette.mix(Palette.CARD, Palette.CARD_HOVER, hover),
+                if (active) Palette.GOLD else Palette.EDGE,
+            )
+            ui.text(label, tx + 4, swapTop, if (active) Palette.GOLD else Palette.mix(Palette.MUTED, Palette.TEXT, hover), 0.75f)
+            ui.hit(tx, swapTop - 2, lw, 10, Component.literal(t(if (threatMode) "analysis.threats_tip" else "analysis.swaps_tip"))) {
+                showThreats = threatMode
+                contentAt = now()
+            }
+            tx += lw + 3
+        }
+        if (showThreats) {
+            threatColumns(ui, s, swapTop + 11)
+            return
+        }
+        ui.text(t("column.pc"), tx + 3, swapTop, Palette.OWNED, 0.75f)
         ui.text(t("column.all"), pad + w + 4, swapTop, Palette.CATALOG, 0.75f)
-        swapColumn(ui, "pc", pad, swapTop + 9, w, s.pcSwaps)
-        swapColumn(ui, "all", pad + w + 4, swapTop + 9, w, s.allSwaps)
+        swapColumn(ui, "pc", pad, swapTop + 11, w, s.pcSwaps)
+        swapColumn(ui, "all", pad + w + 4, swapTop + 11, w, s.allSwaps)
+    }
+
+    /** Ameacas do meta ao time, em duas colunas. */
+    private fun threatColumns(ui: Ui, s: BuilderState, top: Int) {
+        if (s.threats.isEmpty()) return empty(ui, pad, top, t("threat.none"))
+        val w = columnWidth()
+        val h = 30
+        val rows = max(1, (bodyBottom - top + 2) / (h + 2))
+        for ((i, th) in s.threats.take(rows * 2).withIndex()) {
+            val x = pad + (i / rows) * (w + 4)
+            val y = top + (i % rows) * (h + 2)
+            val tip = Component.literal(th.slot.name).withStyle(ChatFormatting.RED)
+                .append("\n").append(Component.literal(th.slot.info).withStyle(ChatFormatting.GRAY))
+            if (th.hitting.isNotEmpty()) {
+                tip.append("\n").append(Component.literal(t("threat.hitting") + " ").withStyle(ChatFormatting.GRAY)).append(SetText.rich(th.hitting))
+            }
+            tip.append("\n").append(Component.literal(t("threat.weak_list", th.weak.joinToString().ifEmpty { "-" })).withStyle(ChatFormatting.GRAY))
+            tip.append("\n").append(Component.literal(t("threat.walls_list", th.walls.joinToString().ifEmpty { "-" })).withStyle(ChatFormatting.GRAY))
+            tip.append("\n").append(
+                Component.literal(t("threat.answers_list", th.answers.joinToString().ifEmpty { "-" }))
+                    .withStyle(if (th.answers.isEmpty()) ChatFormatting.RED else ChatFormatting.GREEN)
+            )
+            tip.append("\n\n").append(Component.literal(t("threat.hint")).withStyle(ChatFormatting.DARK_GRAY))
+            val (ax, a, hover) = card(ui, "threat:${th.slot.key}", i, x, y, w, h, Palette.BAD, tip, null)
+            if (a > 0.6f) {
+                PokemonModels.draw(ui.g, "threat:${th.slot.key}", th.slot.species, th.slot.aspects, ax + 3, y + 3, 24, if (hover > 0.5f) ui.partialTick else 0f, zoom = 1f + 0.12f * hover)
+            }
+            val tx = ax + 31
+            val score = "${th.score}%"
+            ui.textRight(score, ax + w - 4, y + 3, Palette.alpha(Palette.BAD, a), 0.75f)
+            val after = ui.types(th.slot.types, tx, y + 2, a)
+            ui.text(ui.fit(th.slot.name, ax + w - after - 10 - ui.width(score, 0.75f)), after + 3, y + 3, Palette.alpha(Palette.TEXT, a))
+            ui.rich(t("threat.hits", th.weak.size, th.hitting), tx, y + 13, Palette.alpha(Palette.MUTED, a), 0.75f, w - 35)
+            val answer = if (th.answers.isEmpty()) t("threat.no_answer") else t("threat.answers", th.answers.joinToString())
+            ui.text(ui.fit(answer, w - 35, 0.75f), tx, y + 21, Palette.alpha(if (th.answers.isEmpty()) Palette.BAD else Palette.OWNED, a), 0.75f)
+        }
     }
 
     private fun swapColumn(ui: Ui, column: String, x: Int, top: Int, w: Int, swaps: List<SwapView>) {
@@ -821,6 +921,136 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             line.append(Component.literal(SetText.multiplier(p.effectiveness)).withStyle(if (p.effectiveness > 1) ChatFormatting.GREEN else ChatFormatting.GRAY))
             line.append(Component.literal("  " + t("raid.takes") + " " + SetText.multiplier(p.worstTaken)).withStyle(if (p.worstTaken > 1) ChatFormatting.RED else ChatFormatting.DARK_GRAY))
             ui.text(line, tx, y + 13, Palette.alpha(Palette.MUTED, a), 0.75f)
+        }
+    }
+
+    // ------------------------------------------------------------ treinadores
+
+    private fun trainers(ui: Ui, s: BuilderState, top: Int) {
+        val tv = s.trainer
+        if (tv == null) trainerPicker(ui, top) else trainerDetail(ui, s, tv, top)
+    }
+
+    /** Lista de treinadores do RCT; o campo de nome filtra. */
+    private fun trainerPicker(ui: Ui, top: Int) {
+        ui.text(t("trainer.pick"), pad, top, Palette.RAID, 0.75f)
+        ui.textRight(t("trainer.search_hint"), pad + leftWidth, top, Palette.FAINT, 0.75f)
+        val list = trainerList?.trainers.orEmpty()
+        if (list.isEmpty()) {
+            ui.text(t(if (trainerList == null) "status.calculating" else "trainer.none"), pad + 2, top + 14, Palette.TEXT)
+            if (trainerList != null) ui.text(t("trainer.none_hint"), pad + 2, top + 26, Palette.MUTED, 0.75f)
+            return
+        }
+        val w = columnWidth()
+        val h = 38
+        val rows = max(1, (bodyBottom - top - 9) / (h + 3))
+        for ((i, tr) in list.take(rows * 2).withIndex()) {
+            val x = pad + (i % 2) * (w + 4)
+            val y = top + 9 + (i / 2) * (h + 3)
+            val tip = Component.literal(tr.name).withStyle(ChatFormatting.GOLD)
+            if (tr.type.isNotEmpty()) tip.append(Component.literal("  " + tr.type).withStyle(ChatFormatting.GRAY))
+            for (m in tr.members) tip.append("\n").append(Component.literal("${m.name}  ${t("info.level_short", m.level)}").withStyle(ChatFormatting.GRAY))
+            tip.append("\n\n").append(Component.literal(t("trainer.click")).withStyle(ChatFormatting.DARK_GRAY))
+            val (ax, a, hover) = card(ui, "trainer:${tr.id}", i, x, y, w, h, Palette.RAID, tip) { chooseTrainer(tr.id) }
+            val level = t("info.level_short", tr.level)
+            ui.textRight(level, ax + w - 4, y + 3, Palette.alpha(Palette.GOLD, a), 0.75f)
+            ui.text(ui.fit(tr.name, w - 60), ax + 5, y + 3, Palette.alpha(Palette.TEXT, a))
+            if (tr.type.isNotEmpty()) ui.text(ui.fit(tr.type, w - 10, 0.75f), ax + 5 + min(ui.width(tr.name), w - 60) + 5, y + 4, Palette.alpha(Palette.RAID, a), 0.75f)
+            if (a > 0.6f && tr.members.isNotEmpty()) {
+                val box = min(20, (w - 10) / tr.members.size - 2)
+                for ((j, m) in tr.members.withIndex()) {
+                    val wave = hover * (0.5f + 0.5f * sin(now() / 160.0 - j * 0.9).toFloat())
+                    PokemonModels.draw(ui.g, "trainer:${tr.id}:$j", m.species, m.aspects, ax + 5 + j * (box + 2), y + 14, box, zoom = 1f + 0.14f * wave)
+                }
+            }
+        }
+    }
+
+    /** Time do treinador, quem do seu time responde a cada um, e os melhores counters. */
+    private fun trainerDetail(ui: Ui, s: BuilderState, tv: dev.thal.teambuilder.core.TrainerView, top: Int) {
+        ui.panel(pad, top, leftWidth, 18, Palette.mix(Palette.CARD, Palette.RAID, 0.10f), Palette.RAID)
+        ui.text(tv.name, pad + 5, top + 5, Palette.TEXT)
+        if (tv.type.isNotEmpty()) ui.text(tv.type, pad + 10 + ui.width(tv.name), top + 6, Palette.RAID, 0.75f)
+        var right = button(ui, pad + leftWidth - 3, top + 3, t("raid.change"), t("trainer.change_tip"), Palette.RAID) {
+            trainerId = null
+            request()
+        }
+        if (tv.pcPicks.isNotEmpty()) {
+            button(ui, right, top + 3, t("trainer.build"), t("trainer.build_tip"), Palette.OWNED) {
+                request(keys = tv.pcPicks.take(6).map { it.slot.key })
+            }
+        }
+
+        // Time adversario.
+        val ey = top + 21
+        val gap = 3
+        val ew = (leftWidth - gap * 5) / 6
+        val eh = 40
+        for ((i, e) in tv.enemies.withIndex()) {
+            val x = pad + i * (ew + gap)
+            val answered = e.answer.isNotEmpty()
+            val tip = Component.literal(e.slot.name).withStyle(ChatFormatting.WHITE)
+                .append(Component.literal("  " + t("info.level_short", e.level)).withStyle(ChatFormatting.GOLD))
+                .append("\n").append(SetText.rich(Lang.types(e.slot.types)))
+            if (e.moves.isNotEmpty()) {
+                tip.append("\n").append(Component.literal(t("label.moves") + ": ").withStyle(ChatFormatting.GRAY))
+                e.moves.forEachIndexed { k, m ->
+                    if (k > 0) tip.append(Component.literal(", ").withStyle(ChatFormatting.DARK_GRAY))
+                    tip.append(SetText.move(m))
+                }
+            }
+            if (e.item.isNotEmpty()) tip.append("\n").append(Component.literal(t("label.item") + ": ").withStyle(ChatFormatting.GRAY)).append(SetText.item(e.item))
+            if (e.ability.isNotEmpty()) tip.append("\n").append(Component.literal(t("label.ability") + ": ").withStyle(ChatFormatting.GRAY)).append(SetText.ability(e.ability))
+            if (e.nature.isNotEmpty()) tip.append("\n").append(Component.literal(t("label.nature") + ": ").withStyle(ChatFormatting.GRAY)).append(SetText.nature(e.nature))
+            tip.append("\n\n").append(
+                Component.literal(if (answered) t("trainer.answer", e.answer) else t("trainer.no_answer"))
+                    .withStyle(if (answered) ChatFormatting.GREEN else ChatFormatting.RED)
+            )
+            val (ax, a, hover) = card(ui, "enemy:${tv.id}:$i", i, x, ey, ew, eh, Palette.RAID, tip, null)
+            if (a > 0.6f) {
+                PokemonModels.draw(ui.g, "enemy:${tv.id}:$i", e.slot.species, e.slot.aspects, ax + 3, ey + 3, 22, if (hover > 0.5f) ui.partialTick else 0f, zoom = 1f + 0.12f * hover)
+            }
+            ui.text(ui.fit(e.slot.name, ew - 30, 0.75f), ax + 27, ey + 4, Palette.alpha(Palette.TEXT, a), 0.75f)
+            ui.text(t("info.level_short", e.level), ax + 27, ey + 12, Palette.alpha(Palette.GOLD, a), 0.75f)
+            ui.types(e.slot.types, ax + 27, ey + 19, a)
+            val answer = if (answered) e.answer else if (s.team.isEmpty()) "" else t("trainer.no_answer_short")
+            ui.text(ui.fit(answer, ew - 6, 0.75f), ax + 3, ey + eh - 9, Palette.alpha(if (answered) Palette.OWNED else Palette.BAD, a), 0.75f)
+        }
+
+        // Counters.
+        val listTop = ey + eh + 4
+        val w = columnWidth()
+        ui.text(t("column.pc_upper"), pad, listTop, Palette.OWNED, 0.75f)
+        ui.text(t("column.all_upper"), pad + w + 4, listTop, Palette.CATALOG, 0.75f)
+        counterColumn(ui, "pc", pad, listTop + 9, w, tv.pcPicks)
+        counterColumn(ui, "all", pad + w + 4, listTop + 9, w, tv.allPicks)
+    }
+
+    private fun counterColumn(ui: Ui, column: String, x: Int, top: Int, w: Int, picks: List<dev.thal.teambuilder.core.CounterView>) {
+        if (picks.isEmpty()) return empty(ui, x, top, t("empty.no_candidates"))
+        val h = 24
+        val fits = max(1, (bodyBottom - top + 2) / (h + 2))
+        for ((i, p) in picks.take(fits).withIndex()) {
+            val y = top + i * (h + 2)
+            val tip = Component.literal(p.slot.name).append(Component.literal("  ${p.score}%").withStyle(ChatFormatting.GOLD))
+                .append("\n").append(Component.literal(p.slot.info).withStyle(ChatFormatting.GRAY))
+                .append("\n").append(Component.literal(t("trainer.handles", p.handles.joinToString().ifEmpty { "-" })).withStyle(ChatFormatting.GRAY))
+                .append("\n\n").append(Component.literal(t("tip.click_add")).withStyle(ChatFormatting.DARK_GRAY))
+            val (ax, a, hover) = card(ui, "counter:$column:${p.slot.key}", i, x, y, w, h, accentOf(p.slot), tip) {
+                if (keys.size < 6 && p.slot.key !in keys) request(keys = keys + p.slot.key)
+            }
+            if (a > 0.6f) {
+                PokemonModels.draw(ui.g, "counter:$column:${p.slot.key}", p.slot.species, p.slot.aspects, ax + 3, y + 2, 20, if (hover > 0.5f) ui.partialTick else 0f, zoom = 1f + 0.15f * hover)
+            }
+            val tx = ax + 27
+            val score = "${p.score}%"
+            ui.textRight(score, ax + w - 4, y + 3, Palette.alpha(Palette.RAID, a))
+            ui.text(ui.fit(p.slot.name, w - 34 - ui.width(score)), tx, y + 3, Palette.alpha(accentOf(p.slot), a))
+            ui.text(ui.fit(t("trainer.handles", p.handles.joinToString().ifEmpty { "-" }), w - 32, 0.75f), tx, y + 13, Palette.alpha(Palette.MUTED, a), 0.75f)
+            val barW = w - 31
+            val fill = smooth("counterbar:$column:${p.slot.key}", p.score / 100f, 5f)
+            ui.rect(tx, y + h - 3, barW, 1, Palette.alpha(Palette.PANEL_EDGE, a))
+            ui.rect(tx, y + h - 3, (barW * fill).toInt(), 1, Palette.alpha(Palette.RAID, a))
         }
     }
 
@@ -958,8 +1188,13 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         ui.text(ui.fit(slot.roles.joinToString(", "), w - 52, 0.75f), tx, y + 37, Palette.alpha(Palette.FAINT, tt), 0.75f)
 
         var cy = y + 50
+        cy += advisorToggle(ui, x + 6, cy, set, tt)
         if (slot.forms.size > 1) cy += formChips(ui, x + 6, cy, w - 12, slot, tt)
         if (set.roleOptions.isNotEmpty()) cy += roleChips(ui, x + 6, cy, w - 12, slot, set, tt)
+        if (showChecklist) {
+            checklist(ui, x + 6, cy, w - 12, set, tt)
+            return
+        }
 
         // Item e habilidade.
         val half = (w - 12 - 3) / 2
@@ -991,6 +1226,84 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         val rowH = min(20, (bodyBottom - 3 - cy) / max(1, set.moves.size))
         for ((i, m) in set.moves.withIndex()) {
             moveRow(ui, x + 6, cy + i * rowH, w - 12, rowH - 1, m, slot.owned, i)
+        }
+    }
+
+    /** "SET | FALTA (n)": alterna o painel entre o set sugerido e o checklist. */
+    private fun advisorToggle(ui: Ui, x: Int, y: Int, set: SetView, tt: Float): Int {
+        val pending = set.checklist.count { it.state == "missing" || it.state == "have" }
+        var cx = x
+        for ((mode, label) in listOf(false to t("advisor.tab_set"), true to t("advisor.tab_check", pending))) {
+            val active = showChecklist == mode
+            val lw = ui.width(label, 0.75f) + 8
+            val hover = smooth("adv:$mode", if (ui.over(cx, y, lw, 11)) 1f else 0f)
+            ui.panel(
+                cx, y, lw, 11,
+                Palette.alpha(if (active) Palette.mix(Palette.CARD, Palette.GOLD, 0.2f) else Palette.mix(Palette.CARD, Palette.CARD_HOVER, hover), tt),
+                Palette.alpha(if (active) Palette.GOLD else Palette.EDGE, tt),
+            )
+            val color = when {
+                active -> Palette.GOLD
+                mode && pending > 0 -> Palette.mix(Palette.GOLD, Palette.TEXT, 0.4f)
+                else -> Palette.mix(Palette.MUTED, Palette.TEXT, hover)
+            }
+            ui.text(label, cx + 4, y + 2, Palette.alpha(color, tt), 0.75f)
+            ui.hit(cx, y, lw, 11, Component.literal(t(if (mode) "advisor.tab_check_tip" else "advisor.tab_set_tip"))) { showChecklist = mode }
+            cx += lw + 3
+        }
+        return 14
+    }
+
+    /** O que falta para o seu exemplar ficar igual ao set, com o que ja esta no inventario. */
+    private fun checklist(ui: Ui, x: Int, y: Int, w: Int, set: SetView, tt: Float) {
+        val items = set.checklist
+        if (items.isEmpty()) {
+            ui.text(t("check.empty"), x, y + 2, Palette.alpha(Palette.FAINT, tt), 0.75f)
+            return
+        }
+        val rowH = min(15, max(10, (bodyBottom - 3 - y) / items.size))
+        val names = SetText.STAT_NAMES
+        for ((i, item) in items.withIndex()) {
+            val ry = y + i * rowH
+            if (ry + rowH > bodyBottom - 2) break
+            val a = enter(i) * tt
+            val (mark, color) = when (item.state) {
+                "done" -> "✔" to Palette.GOOD
+                "have" -> "●" to Palette.CYAN
+                "missing" -> "✘" to Palette.GOLD
+                else -> "•" to Palette.MUTED
+            }
+            val label: MutableComponent = when (item.kind) {
+                "move" -> SetText.move(item.id)
+                "nature" -> Component.literal(t("check.nature") + " ").append(SetText.nature(item.id))
+                "ability" -> SetText.ability(item.id)
+                "item", "mega" -> SetText.item(item.id)
+                "ev" -> Component.literal("EV " + names.getOrElse(item.id.toIntOrNull() ?: 0) { "?" })
+                "iv" -> Component.literal("IV " + names.getOrElse(item.id.toIntOrNull() ?: 0) { "?" })
+                else -> Component.literal(t("check.obtain"))
+            }
+            val detail = when (item.kind) {
+                "move" -> when (item.state) { "done" -> t("move.known"); "have" -> t("move.swap"); else -> item.detail.ifEmpty { t("move.learn") } }
+                "nature" -> when (item.state) { "done" -> t("check.ok"); "have" -> t("check.use_mint"); else -> t("check.need_mint") }
+                "ability" -> when (item.state) { "done" -> t("check.ok"); "have" -> t("check.use_capsule"); else -> t("check.need_capsule") }
+                "item", "mega" -> when (item.state) { "done" -> t("check.holding"); "have" -> t("check.in_bag"); else -> t("check.get_it") }
+                "ev" -> item.detail + when (item.state) { "have" -> " · " + t("check.vitamin"); "info" -> " · " + t("check.ev_over"); else -> "" }
+                "iv" -> "${item.detail} → 31"
+                else -> ""
+            }
+            val hover = smooth("check:$i", if (ui.over(x, ry, w, rowH - 1)) 1f else 0f)
+            ui.rect(x, ry, w, rowH - 1, Palette.alpha(Palette.mix(Palette.CARD, Palette.CARD_HOVER, hover), a))
+            ui.text(mark, x + 3, ry + (rowH - 9) / 2, Palette.alpha(color, a))
+            val dw = ui.width(detail, 0.75f)
+            ui.textRight(detail, x + w - 3, ry + (rowH - 6) / 2, Palette.alpha(color, a), 0.75f)
+            val room = w - 16 - dw - 6
+            ui.text(label, x + 13, ry + (rowH - 8) / 2, Palette.alpha(if (item.state == "done") Palette.MUTED else Palette.TEXT, a), if (ui.width(label) > room) 0.75f else 1f)
+            val tip = label.copy().append("\n").append(Component.literal(t("check.state_${item.state}")).withStyle(ChatFormatting.GRAY))
+            if (detail.isNotEmpty()) tip.append("\n").append(Component.literal(detail).withStyle(ChatFormatting.GRAY))
+            if (item.kind == "nature" && item.state != "done" && item.detail.isNotEmpty()) {
+                tip.append("\n").append(Component.literal(t("check.item_needed") + " ").withStyle(ChatFormatting.DARK_GRAY)).append(SetText.item(item.detail))
+            }
+            ui.hit(x, ry, w, rowH - 1, tip)
         }
     }
 
@@ -1211,6 +1524,9 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
                 tab == Tab.RAID && state?.raid == null -> {
                     raidQuery = text
                     request()
+                }
+                tab == Tab.TRAINERS -> {
+                    if (state?.trainer == null) trainerList?.trainers?.firstOrNull()?.let { chooseTrainer(it.id) }
                 }
                 // Um nome so: usa o primeiro card da busca, que ja mostra o que vai entrar.
                 results.isNotEmpty() && text.none { it in ",;+/" } -> pickSearch(results.first())

@@ -51,6 +51,7 @@ object StorageReader {
             legendary = isLegendary(p.species.labels),
             species = p.species.resourceIdentifier.toString(),
             aspects = p.aspects.toSet(),
+            heldItem = itemId(p.heldItem()),
         )
     }
 
@@ -85,6 +86,10 @@ object StorageReader {
         val key = "method.$code"
         return if (lang.has(key)) lang.t(key) else code
     }
+
+    /** Id do item sem namespace nem separadores: "cobblemon:choice_scarf" -> "choicescarf". */
+    fun itemId(stack: net.minecraft.world.item.ItemStack): String =
+        if (stack.isEmpty) "" else showdownId(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.item).path)
 
     /** Normaliza para o formato de id do Showdown/Smogon: minusculas, so letras e numeros. */
     fun showdownId(raw: String): String = raw.lowercase().filter { it in 'a'..'z' || it in '0'..'9' }

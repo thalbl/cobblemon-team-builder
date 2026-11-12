@@ -2,7 +2,17 @@ package dev.thal.teambuilder.cobblemon
 
 import com.cobblemon.mod.common.Cobblemon
 import com.cobblemon.mod.common.battles.BattleRegistry
+import dev.thal.teambuilder.Config
 import dev.thal.teambuilder.core.BuildOptions
+import dev.thal.teambuilder.core.ChecklistItemView
+import dev.thal.teambuilder.core.CoreView
+import dev.thal.teambuilder.core.Cores
+import dev.thal.teambuilder.core.CounterView
+import dev.thal.teambuilder.core.MoveStatus
+import dev.thal.teambuilder.core.ThreatView
+import dev.thal.teambuilder.core.TrainerEnemyView
+import dev.thal.teambuilder.core.TrainerSummary
+import dev.thal.teambuilder.core.TrainerView
 import dev.thal.teambuilder.core.BuilderRequest
 import dev.thal.teambuilder.core.BuilderState
 import dev.thal.teambuilder.core.Format
@@ -38,12 +48,18 @@ import java.util.concurrent.ConcurrentHashMap
 object TeamBuilderService {
     const val TEAM_SIZE = 6
     private const val UUID_PREFIX = "uuid:"
-    private const val SEARCH_LIMIT = 8
+    private val SEARCH_LIMIT get() = Config.current.searchResults.coerceIn(2, 20)
+    private val VITAMINS = listOf("hpup", "protein", "iron", "calcium", "zinc", "carbos")
 
     /** Opcoes de cada jogador; valem ate o servidor reiniciar. */
     private val playerOptions = ConcurrentHashMap<UUID, BuildOptions>()
 
-    fun options(player: ServerPlayer): BuildOptions = playerOptions[player.uuid] ?: BuildOptions()
+    fun options(player: ServerPlayer): BuildOptions = playerOptions[player.uuid] ?: Config.current.let { c ->
+        BuildOptions(
+            allowLegendaries = c.defaultLegendaries, allowMegas = c.defaultMegas,
+            format = if (c.defaultDoubles) Format.DOUBLES else Format.SINGLES,
+        )
+    }
 
     fun setOptions(
         player: ServerPlayer, legendaries: Boolean? = null, megas: Boolean? = null, doubles: Boolean? = null,
@@ -188,11 +204,24 @@ object TeamBuilderService {
             if (boss != null) raid = raidView(s, boss) else error = problem
         }
 
+        val trainer = request.trainer?.let { trainerView(s, team, it) }
+        if (request.trainer != null && trainer == null) error = lang.t("trainer.unknown")
+
         val engine = s.engine
         val everything = s.catalog.all.values
         val b = s.catalog.scorer.score(team)
         val full = team.size >= TEAM_SIZE
-        val normal = raid == null
+        val normal = raid == null && trainer == null
+        val threats = if (!normal || team.isEmpty()) emptyList() else {
+            val list = s.catalog.threats.threats(team, everything.filter(engine::allowed), Config.current.threats.coerceIn(1, 20))
+            val top = list.firstOrNull()?.score ?: 1.0
+            list.map { t ->
+                ThreatView(
+                    slot(t.threat, s), (100 * t.score / top).toInt(), t.weak.map { it.name }, t.walls.map { it.name },
+                    t.answers.map { it.name }, Lang.types(t.hittingTypes),
+                )
+            }
+        }
 
         fun teams(pool: Collection<Profile>) =
             if (full || !normal) emptyList()
@@ -211,7 +240,7 @@ object TeamBuilderService {
         val chosen = team.map { chosenByKey[key(it)] ?: chosenByKey[baseKey(it)] }
         return BuilderState(
             team = team.map { slot(it, s, withForms = true) },
-            sets = teamSets(s, team, chosen),
+            sets = teamSets(s, team, chosen, inventory(player)),
             total = b.total, strength = b.strength, defense = b.defense,
             offense = b.offense, roles = b.roles, synergy = b.synergy,
             weaknesses = engine.weaknesses(team),
@@ -227,6 +256,12 @@ object TeamBuilderService {
             legendaries = s.options.allowLegendaries,
             megas = s.options.allowMegas,
             doubles = s.options.format == Format.DOUBLES,
+            cores = Cores.active(team).map { c ->
+                CoreView(c.core.id, c.core.label(lang), c.setters.map { it.name }, c.abusers.map { it.name })
+            },
+            coresScore = b.cores,
+            threats = threats,
+            trainer = trainer,
             error = error,
             notice = notice,
         )
@@ -239,7 +274,7 @@ object TeamBuilderService {
      *  2. recomendacao refeita sabendo os sets dos companheiros;
      *  3. sets finais, e o set que cada funcao alternativa daria.
      */
-    private fun teamSets(s: Session, team: List<Profile>, chosen: List<SetRole?>): List<SetView> {
+    private fun teamSets(s: Session, team: List<Profile>, chosen: List<SetRole?>, inventory: Map<String, Int>): List<SetView> {
         if (team.isEmpty()) return emptyList()
         val advisor = s.catalog.advisor
         val lang = s.lang
@@ -265,8 +300,109 @@ object TeamBuilderService {
             val views = options.map { (r, a) ->
                 RoleView(r.id, r.label(lang), r == recommended[i], a.nature, a.evs, a.moves.map { it.id }, a.items.firstOrNull().orEmpty())
             }
-            setView(final, s.catalog, lang, team[i], views)
+            setView(final, s.catalog, lang, team[i], views).copy(checklist = checklist(team[i], final, inventory, lang))
         }
+    }
+
+    // -------------------------------------------------------------- checklist
+
+    /** Itens no inventario do jogador, por id sem separadores ("timidmint" -> 2). */
+    private fun inventory(player: ServerPlayer): Map<String, Int> {
+        val out = HashMap<String, Int>()
+        val inv = player.inventory
+        for (i in 0 until inv.containerSize) {
+            val stack = inv.getItem(i)
+            if (!stack.isEmpty) out.merge(StorageReader.itemId(stack), stack.count, Int::plus)
+        }
+        return out
+    }
+
+    /** "charizardmegax" -> "charizarditex"; "gyaradosmega" -> "gyaradosite". */
+    private fun megaStone(p: Profile): String {
+        val suffix = p.id.substringAfter("mega", "").takeIf { it == "x" || it == "y" }.orEmpty()
+        return p.speciesId + "ite" + suffix
+    }
+
+    /** O que falta para o exemplar ficar igual ao set: golpes, natureza, habilidade, item, EVs e IVs. */
+    private fun checklist(p: Profile, a: SetAdvice, inv: Map<String, Int>, lang: Lang): List<ChecklistItemView> {
+        val mine = p.candidate.owned ?: return listOf(ChecklistItemView("obtain", p.id, "missing"))
+        fun have(id: String) = (inv[id] ?: 0) > 0
+        fun state(done: Boolean, available: Boolean) = if (done) "done" else if (available) "have" else "missing"
+        val out = ArrayList<ChecklistItemView>()
+        for (m in a.moves) {
+            val st = when (m.status) {
+                MoveStatus.KNOWN -> "done"
+                MoveStatus.SWAP -> "have"
+                MoveStatus.LEARN -> "missing"
+            }
+            out += ChecklistItemView("move", m.id, st, if (m.status == MoveStatus.LEARN) StorageReader.methodText(m.method, lang) else "")
+        }
+        if (a.nature.isNotEmpty()) {
+            val mint = a.nature + "mint"
+            out += ChecklistItemView("nature", a.nature, state(mine.nature == a.nature, have(mint)), mint)
+        }
+        if (a.ability.isNotEmpty()) {
+            out += ChecklistItemView("ability", a.ability, state(mine.ability == a.ability, have("abilitycapsule") || have("abilitypatch")))
+        }
+        if (p.isMega) {
+            val stone = megaStone(p)
+            out += ChecklistItemView("mega", stone, state(mine.heldItem == stone, have(stone)))
+        } else {
+            a.items.firstOrNull()?.let { item -> out += ChecklistItemView("item", item, state(mine.heldItem == item, have(item))) }
+        }
+        for (i in 0 until 6) {
+            val target = a.evs.getOrElse(i) { 0 }
+            val current = mine.evs[StatKey.entries[i]] ?: 0
+            if (target == 0 && current == 0) continue
+            val st = when {
+                kotlin.math.abs(current - target) <= 4 -> "done"
+                current > target -> "info"
+                have(VITAMINS[i]) -> "have"
+                else -> "missing"
+            }
+            out += ChecklistItemView("ev", "$i", st, "$current/$target")
+        }
+        for (i in a.ivPriority.take(3)) {
+            out += ChecklistItemView("iv", "$i", "info", "${mine.ivs[StatKey.entries[i]] ?: 0}")
+        }
+        return out
+    }
+
+    // ------------------------------------------------------------ treinadores
+
+    private fun trainerView(s: Session, team: List<Profile>, id: String): TrainerView? {
+        val t = Trainers.all[id] ?: return null
+        val enemies = t.team.mapNotNull { m -> Trainers.enemy(m, s.catalog) }
+        val battles = s.catalog.battles
+        val answers = battles.answers(enemies, team)
+        fun picks(pool: Collection<Profile>) = battles.rank(enemies, pool.filter(s.engine::allowed), 6).map { c ->
+            CounterView(slot(c.pick, s), c.score, c.handles.map { enemies[it].profile.name })
+        }
+        return TrainerView(
+            id = t.id, name = t.name, type = t.typeLabel,
+            enemies = enemies.mapIndexed { i, e ->
+                TrainerEnemyView(
+                    slot(e.profile, s).copy(level = e.level, info = s.lang.t("info.level_short", e.level)),
+                    e.level, e.moves, e.ability, e.item, e.nature, answers[i]?.first?.name.orEmpty(),
+                )
+            },
+            pcPicks = picks(s.owned), allPicks = picks(s.catalog.all.values),
+        )
+    }
+
+    /** Treinadores que combinam com o texto (ou os importantes, sem texto), com o time em miniatura. */
+    fun searchTrainers(player: ServerPlayer, query: String): SearchResult {
+        val catalog = Catalog.get(options(player).format)
+        val trainers = Trainers.search(query).map { t ->
+            TrainerSummary(
+                t.id, t.name, t.typeLabel, t.maxLevel,
+                t.team.mapNotNull { m -> Trainers.enemy(m, catalog) }.map { e ->
+                    val c = e.profile.candidate
+                    SlotView("", e.profile.name, c.types, emptyList(), false, e.level, c.species, c.aspects.toList())
+                },
+            )
+        }
+        return SearchResult(query, kind = "trainer", trainers = trainers)
     }
 
     fun setView(

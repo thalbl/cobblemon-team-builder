@@ -25,6 +25,8 @@ data class BuilderRequest(
     val roles: List<String?> = emptyList(),
     /** Coloca no party os Pokemon do jogador que estao no time. */
     val apply: Boolean = false,
+    /** Id do treinador do RCT para calcular counters; null = modo normal. */
+    val trainer: String? = null,
 )
 
 /** Uma forma alternativa do Pokemon de um slot (normal, Mega X, Mega Y...). */
@@ -92,6 +94,54 @@ data class SetView(
     val ivPriority: List<Int> = emptyList(),
     /** Atributos (0..5) que este set nao usa. */
     val ivUnused: List<Int> = emptyList(),
+    /** O que falta para o exemplar do jogador ficar igual ao set. */
+    val checklist: List<ChecklistItemView> = emptyList(),
+)
+
+/**
+ * Um passo para montar o set. [kind]: move, nature, ability, item, mega, ev, iv, obtain.
+ * [id] e o golpe/natureza/habilidade/item (ou o indice do atributo); [state]: done, have
+ * (o item necessario esta no inventario), missing ou info.
+ */
+data class ChecklistItemView(val kind: String, val id: String, val state: String, val detail: String = "")
+
+/** Nucleo ativo (clima, terreno, Trick Room) com quem ativa e quem aproveita. */
+data class CoreView(val id: String, val label: String, val setters: List<String>, val abusers: List<String>)
+
+data class ThreatView(
+    val slot: SlotView,
+    /** 0..100, relativo a maior ameaca. */
+    val score: Int,
+    val weak: List<String>,
+    val walls: List<String>,
+    val answers: List<String>,
+    /** Tipos de ataque dele que acertam alguem em cheio, como "{fire}{ground}". */
+    val hitting: String,
+)
+
+/** Treinador do RCT numa lista (busca da aba Treinadores). */
+data class TrainerSummary(val id: String, val name: String, val type: String, val level: Int, val members: List<SlotView>)
+
+data class TrainerEnemyView(
+    val slot: SlotView,
+    val level: Int,
+    val moves: List<String>,
+    val ability: String,
+    val item: String,
+    val nature: String,
+    /** Quem do time atual melhor o enfrenta (vazio se o time esta vazio). */
+    val answer: String = "",
+)
+
+data class CounterView(val slot: SlotView, val score: Int, val handles: List<String>)
+
+data class TrainerView(
+    val id: String,
+    val name: String,
+    val type: String,
+    val enemies: List<TrainerEnemyView>,
+    val pcPicks: List<CounterView>,
+    val allPicks: List<CounterView>,
 )
 
 data class PickView(val slot: SlotView, val gain: Double, val reasons: List<String>)
@@ -155,12 +205,21 @@ data class BuilderState(
     val legendaries: Boolean = false,
     val megas: Boolean = true,
     val doubles: Boolean = false,
+    val cores: List<CoreView> = emptyList(),
+    val coresScore: Double = 0.0,
+    val threats: List<ThreatView> = emptyList(),
+    val trainer: TrainerView? = null,
     val error: String? = null,
     /** Mensagem de sucesso (ex.: time aplicado ao party). */
     val notice: String? = null,
 )
 
 /** Busca por nome enquanto o jogador digita. */
-data class SearchRequest(val query: String = "")
+data class SearchRequest(val query: String = "", val kind: String = "pokemon")
 
-data class SearchResult(val query: String = "", val results: List<SlotView> = emptyList())
+data class SearchResult(
+    val query: String = "",
+    val results: List<SlotView> = emptyList(),
+    val kind: String = "pokemon",
+    val trainers: List<TrainerSummary> = emptyList(),
+)

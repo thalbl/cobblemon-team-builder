@@ -44,6 +44,9 @@ class Catalog private constructor(
 
     val resolver = NameResolver(all.keys)
 
+    val threats = dev.thal.teambuilder.core.ThreatAnalyzer(moves)
+    val battles = dev.thal.teambuilder.core.BattleAdvisor(raids)
+
     fun engine(options: BuildOptions = BuildOptions(), lang: Lang = Lang.EN) = TeamBuilderEngine(scorer, options, lang)
 
     companion object {

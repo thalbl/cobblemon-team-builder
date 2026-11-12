@@ -96,8 +96,13 @@ class SetAdvisor(
             (if (format == Format.DOUBLES) SPEED_CONTROL_MOVES + REDIRECTION_MOVES + DOUBLES_SUPPORT else emptySet())
 
     /** O que o resto do time ja faz. */
-    private inner class Context(val mates: List<MateSet>) {
+    private inner class Context(val mates: List<MateSet>, self: Profile? = null) {
         val empty = mates.isEmpty()
+        /** Nucleos (clima, terreno, Trick Room) que o time ativa, contando o proprio Pokemon. */
+        val cores: Set<Core> = Core.entries.filterTo(HashSet()) { c ->
+            (self != null && Cores.sets(self, c)) ||
+                mates.any { m -> Cores.sets(m.profile, c) || m.moves.any { it in c.setterMoves } }
+        }
         private val all = mates.flatMapTo(HashSet()) { it.moves }
         val coverage: Int = mates.fold(0) { acc, m ->
             val types = m.moves.mapNotNull { moves[it] }
@@ -122,8 +127,10 @@ class SetAdvisor(
 
     /** Set de [p] na funcao [role] (ou na recomendada), sabendo o que os [mates] fazem. */
     fun adviseWith(p: Profile, mates: List<MateSet>, role: SetRole?, lang: Lang = Lang.EN): SetAdvice {
-        val ctx = Context(mates)
+        val ctx = Context(mates, p)
         val r = role?.takeIf { it in roles(p) } ?: recommend(p, mates)
+        // No Trick Room quem e lento ataca primeiro: natureza e EVs sem velocidade.
+        val slow = Core.TRICK_ROOM in ctx.cores && Cores.abuse(p, Core.TRICK_ROOM) > 0
         val physical = when (r) {
             SetRole.PHYSICAL -> true
             SetRole.SPECIAL -> false
@@ -131,7 +138,7 @@ class SetAdvisor(
         }
         val picks = pickMoves(p, r, physical, ctx, lang)
         val ids = picks.map { it.first }
-        val (nature, evs) = spread(p, r, physical)
+        val (nature, evs) = if (slow) slowSpread(p, r, physical) else spread(p, r, physical)
         val ability = p.meta?.abilities?.keys?.firstOrNull { p.candidate.abilities.isEmpty() || it in p.candidate.abilities || p.isOwned }
             ?: p.ability
 
@@ -140,7 +147,8 @@ class SetAdvisor(
             if (mine.nature != nature) notes += lang.t("note.current_nature", mine.nature)
             if (ability.isNotEmpty() && mine.ability != ability) notes += lang.t("note.current_ability", mine.ability)
         }
-        val (priority, unused) = ivAdvice(p, r, evs, ids)
+        if (slow && p.isOwned) notes += lang.t("note.trick_room_iv")
+        val (priority, unused) = ivAdvice(p, r, evs, ids, slow)
         return SetAdvice(
             role = r,
             moves = picks.map { (id, note) -> MoveAdvice(id, status(p, id), p.candidate.learnMethods[id].orEmpty(), note) },
@@ -264,7 +272,11 @@ class SetAdvisor(
                     note = lang.t("note.spread")
                 }
             }
-            val (bonus, why) = roleBonus(id, info, role, physical, ctx, lang)
+            var (bonus, why) = roleBonus(id, info, role, physical, ctx, lang)
+            ctx.cores.firstOrNull { id in it.boostedMoves || (it == Core.TRICK_ROOM && id == "trickroom") }?.let { core ->
+                bonus += 0.3
+                why = lang.t("note.core", core.label(lang))
+            }
             if (!damaging && freq <= 0.0 && bonus <= 0.0) continue
             s += bonus
             if (why.isNotEmpty()) note = why
@@ -449,6 +461,14 @@ class SetAdvisor(
         }
     }
 
+    /** Set para Trick Room: velocidade minima, o resto vai para HP. */
+    private fun slowSpread(p: Profile, role: SetRole, physical: Boolean): Pair<String, List<Int>> = when (role) {
+        SetRole.TANK, SetRole.SUPPORT ->
+            if (stat(p, StatKey.DEF) >= stat(p, StatKey.SPD)) "relaxed" to listOf(252, 0, 252, 0, 4, 0)
+            else "sassy" to listOf(252, 0, 4, 0, 252, 0)
+        else -> if (physical) "brave" to listOf(252, 252, 0, 0, 4, 0) else "quiet" to listOf(252, 0, 0, 252, 4, 0)
+    }
+
     private fun compatible(e: List<Int>, role: SetRole, physical: Boolean): Boolean = when (role) {
         SetRole.PHYSICAL -> e[1] >= 200
         SetRole.SPECIAL -> e[3] >= 200
@@ -463,7 +483,7 @@ class SetAdvisor(
      * Ordem para subir os IVs do exemplar do jogador: pesa cada atributo pelo quanto o set
      * investe nele e pelo quanto falta para 31. Atributos que o set nao usa ficam de fora.
      */
-    private fun ivAdvice(p: Profile, role: SetRole, evs: List<Int>, ids: List<String>): Pair<List<Int>, List<Int>> {
+    private fun ivAdvice(p: Profile, role: SetRole, evs: List<Int>, ids: List<String>, slow: Boolean = false): Pair<List<Int>, List<Int>> {
         val mine = p.candidate.owned ?: return emptyList<Int>() to emptyList()
         val infos = ids.mapNotNull { moves[it] }
         val usesPhysical = infos.any { it.category == MoveCategory.PHYSICAL } || (infos.isEmpty() && role == SetRole.PHYSICAL)
@@ -476,7 +496,7 @@ class SetAdvisor(
         w[3] = if (usesSpecial) max(w[3], 0.5) else 0.0
         w[5] = max(w[5], if (role == SetRole.TANK || role == SetRole.SUPPORT) 0.1 else 0.3)
         // Gyro Ball e Trick Room querem o Pokemon lento.
-        if (evs.getOrElse(5) { 0 } == 0 && ids.any { it == "gyroball" || it == "trickroom" }) w[5] = 0.0
+        if (slow || (evs.getOrElse(5) { 0 } == 0 && ids.any { it == "gyroball" || it == "trickroom" })) w[5] = 0.0
 
         val ivs = StatKey.entries.map { mine.ivs[it] ?: 0 }
         val unused = (0 until 6).filter { w[it] == 0.0 }

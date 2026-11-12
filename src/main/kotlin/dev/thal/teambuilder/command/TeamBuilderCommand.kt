@@ -5,7 +5,9 @@ import com.mojang.brigadier.arguments.BoolArgumentType
 import com.mojang.brigadier.arguments.StringArgumentType
 import com.mojang.brigadier.context.CommandContext
 import com.mojang.brigadier.suggestion.SuggestionProvider
+import dev.thal.teambuilder.Config
 import dev.thal.teambuilder.TeamBuilderMod
+import dev.thal.teambuilder.core.SnapshotBuilder
 import dev.thal.teambuilder.cobblemon.Catalog
 import dev.thal.teambuilder.cobblemon.StorageReader
 import dev.thal.teambuilder.cobblemon.TeamBuilderService
@@ -67,6 +69,27 @@ object TeamBuilderCommand {
                         .then(Commands.literal("doubles").then(onOff { p, v -> TeamBuilderService.setOptions(p, doubles = v) }))
                 )
                 .then(
+                    Commands.literal("reload")
+                        .requires { it.hasPermission(Config.current.adminPermissionLevel) }
+                        .executes(::reload)
+                )
+                .then(
+                    Commands.literal("snapshot")
+                        .requires { it.hasPermission(Config.current.adminPermissionLevel) }
+                        .executes(::snapshotStatus)
+                        .then(
+                            Commands.literal("update")
+                                .executes { snapshotUpdate(it, null, false) }
+                                .then(Commands.literal("doubles").executes { snapshotUpdate(it, null, true) })
+                                .then(
+                                    Commands.argument("month", StringArgumentType.word())
+                                        .executes { snapshotUpdate(it, StringArgumentType.getString(it, "month"), false) }
+                                        .then(Commands.literal("doubles").executes { snapshotUpdate(it, StringArgumentType.getString(it, "month"), true) })
+                                )
+                        )
+                        .then(Commands.literal("reset").executes(::snapshotReset))
+                )
+                .then(
                     Commands.literal("sets").executes { sets(it, null) }
                         .then(names().executes { sets(it, StringArgumentType.getString(it, "pokemon")) })
                 )
@@ -88,6 +111,69 @@ object TeamBuilderCommand {
             )
             1
         }
+
+    private fun reload(ctx: CommandContext<CommandSourceStack>): Int {
+        Config.load()
+        TeamBuilderMod.reloadMeta()
+        ctx.reply("§6Team Builder§r: " + ctx.lang().t("cmd.reloaded"))
+        return 1
+    }
+
+    private fun snapshotStatus(ctx: CommandContext<CommandSourceStack>): Int {
+        val l = ctx.lang()
+        for (doubles in listOf(false, true)) {
+            val meta = TeamBuilderMod.metaFor(if (doubles) Format.DOUBLES else Format.SINGLES)
+            val custom = java.nio.file.Files.exists(TeamBuilderMod.snapshotFile(doubles))
+            ctx.reply("§6" + (if (doubles) "2v2" else "1v1") + "§r: " + l.t("cmd.snapshot_status", meta.month, meta.size,
+                l.t(if (custom) "cmd.snapshot_downloaded" else "cmd.snapshot_bundled")))
+        }
+        ctx.reply("§7" + l.t("cmd.snapshot_help"))
+        return 1
+    }
+
+    @Volatile
+    private var updating = false
+
+    /** Baixa as estatisticas do Smogon numa thread separada para nao travar o servidor. */
+    private fun snapshotUpdate(ctx: CommandContext<CommandSourceStack>, month: String?, doubles: Boolean): Int {
+        val l = ctx.lang()
+        if (updating) {
+            ctx.reply("§c" + l.t("cmd.snapshot_busy"))
+            return 0
+        }
+        updating = true
+        val source = ctx.source
+        val server = source.server
+        fun say(text: String) = server.execute { source.sendSuccess({ Component.literal(text) }, false) }
+        ctx.reply("§6Team Builder§r: " + l.t("cmd.snapshot_start", month ?: l.t("cmd.snapshot_latest")))
+        Thread({
+            try {
+                val json = SnapshotBuilder.build(month, doubles) { say("§7  $it") }
+                val file = TeamBuilderMod.snapshotFile(doubles)
+                java.nio.file.Files.createDirectories(file.parent)
+                java.nio.file.Files.writeString(file, json.toString())
+                server.execute {
+                    TeamBuilderMod.reloadMeta()
+                    val meta = TeamBuilderMod.metaFor(if (doubles) Format.DOUBLES else Format.SINGLES)
+                    source.sendSuccess({ Component.literal("§a" + l.t("cmd.snapshot_done", meta.month, meta.size)) }, true)
+                }
+            } catch (e: Exception) {
+                TeamBuilderMod.LOGGER.error("Falha ao atualizar o snapshot", e)
+                say("§c" + l.t("cmd.snapshot_failed", e.message ?: e.javaClass.simpleName))
+            } finally {
+                updating = false
+            }
+        }, "team-builder-snapshot").apply { isDaemon = true }.start()
+        return 1
+    }
+
+    /** Apaga os snapshots baixados e volta aos que vem no jar. */
+    private fun snapshotReset(ctx: CommandContext<CommandSourceStack>): Int {
+        for (doubles in listOf(false, true)) java.nio.file.Files.deleteIfExists(TeamBuilderMod.snapshotFile(doubles))
+        TeamBuilderMod.reloadMeta()
+        ctx.reply("§6Team Builder§r: " + ctx.lang().t("cmd.snapshot_reset"))
+        return 1
+    }
 
     /** Melhores Pokemon contra o chefe de raid (detectado, ou informado como "pokemon [tipo tera]"). */
     private fun raid(ctx: CommandContext<CommandSourceStack>, query: String): Int {

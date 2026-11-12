@@ -1,15 +1,18 @@
 package dev.thal.teambuilder
 
+import dev.thal.teambuilder.cobblemon.Catalog
+import dev.thal.teambuilder.cobblemon.Trainers
 import dev.thal.teambuilder.command.TeamBuilderCommand
 import dev.thal.teambuilder.core.Format
 import dev.thal.teambuilder.core.MetaLoader
 import dev.thal.teambuilder.core.MetaSnapshot
 import dev.thal.teambuilder.net.Network
 import net.fabricmc.api.ModInitializer
-import dev.thal.teambuilder.cobblemon.Catalog
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
 import org.slf4j.LoggerFactory
+import java.nio.file.Files
+import java.nio.file.Path
 
 object TeamBuilderMod : ModInitializer {
     const val MOD_ID = "cobblemon_team_builder"
@@ -25,30 +28,51 @@ object TeamBuilderMod : ModInitializer {
     fun metaFor(format: Format): MetaSnapshot =
         if (format == Format.DOUBLES && doublesMeta.size > 0) doublesMeta else meta
 
-    override fun onInitialize() {
-        meta = try {
-            MetaLoader.loadBundled()
-        } catch (e: Exception) {
-            LOGGER.error("Falha ao ler o snapshot de meta; sugestoes usarao so a heuristica", e)
-            MetaSnapshot.EMPTY
-        }
-        LOGGER.info("Snapshot de meta {}: {} Pokemon", meta.month, meta.size)
-        doublesMeta = try {
-            MetaLoader.loadBundled(MetaLoader.DOUBLES_PATH)
-        } catch (e: Exception) {
-            LOGGER.error("Falha ao ler o snapshot de duplas", e)
-            MetaSnapshot.EMPTY
-        }
-        if (doublesMeta.size > 0) LOGGER.info("Snapshot de duplas {}: {} Pokemon", doublesMeta.month, doublesMeta.size)
+    /** Snapshot baixado pelo comando /teambuilder snapshot update; tem prioridade sobre o do jar. */
+    fun snapshotFile(doubles: Boolean): Path = Config.dir.resolve("meta").resolve(if (doubles) "doubles.json" else "singles.json")
 
+    override fun onInitialize() {
+        Config.load()
+        reloadMeta()
         Network.registerCommon()
 
-        // Especies e golpes vem de datapacks: o catalogo precisa ser refeito a cada (re)carga.
-        ServerLifecycleEvents.SERVER_STARTED.register { Catalog.invalidate() }
-        ServerLifecycleEvents.END_DATA_PACK_RELOAD.register { _, _, _ -> Catalog.invalidate() }
+        // Especies, golpes e treinadores vem de datapacks: refaz tudo a cada (re)carga.
+        ServerLifecycleEvents.SERVER_STARTED.register { server ->
+            Catalog.invalidate()
+            Trainers.load(server.resourceManager)
+        }
+        ServerLifecycleEvents.END_DATA_PACK_RELOAD.register { server, _, _ ->
+            Catalog.invalidate()
+            Trainers.load(server.resourceManager)
+        }
 
         CommandRegistrationCallback.EVENT.register { dispatcher, _, _ ->
             TeamBuilderCommand.register(dispatcher)
+        }
+    }
+
+    /** Le os snapshots (o baixado, se houver; senao o que vem no jar) e descarta o catalogo. */
+    fun reloadMeta() {
+        meta = load(false)
+        doublesMeta = load(true)
+        LOGGER.info("Snapshots: singles {} ({} Pokemon), duplas {} ({} Pokemon)", meta.month, meta.size, doublesMeta.month, doublesMeta.size)
+        Catalog.invalidate()
+    }
+
+    private fun load(doubles: Boolean): MetaSnapshot {
+        val file = snapshotFile(doubles)
+        if (Files.exists(file)) {
+            try {
+                return Files.newBufferedReader(file).use(MetaLoader::parse)
+            } catch (e: Exception) {
+                LOGGER.error("Snapshot baixado {} invalido; usando o do jar", file, e)
+            }
+        }
+        return try {
+            MetaLoader.loadBundled(if (doubles) MetaLoader.DOUBLES_PATH else MetaLoader.RESOURCE_PATH)
+        } catch (e: Exception) {
+            LOGGER.error("Falha ao ler o snapshot; sugestoes usarao so a heuristica", e)
+            MetaSnapshot.EMPTY
         }
     }
 }

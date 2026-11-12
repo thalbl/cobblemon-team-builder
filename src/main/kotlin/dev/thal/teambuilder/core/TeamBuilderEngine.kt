@@ -152,6 +152,17 @@ class TeamBuilderEngine(
             .maxByOrNull { it.second }
             ?.let { (mate, lift) -> out += lang.t("reason.partner", mate.name, "%.1f".format(lift)) }
 
+        val coresBefore = Cores.active(team).map { it.core }.toSet()
+        for (active in Cores.active(after)) {
+            val label = active.core.label(lang)
+            when {
+                active.core !in coresBefore && pick in active.setters && active.abusers.any { it !== pick } ->
+                    out += lang.t("reason.core_sets", label)
+                active.core in coresBefore && Cores.abuse(pick, active.core) >= 1.0 ->
+                    out += lang.t("reason.core_abuses", label)
+            }
+        }
+
         if (stacks.isNotEmpty()) out += lang.t("reason.stacks", Lang.types(stacks))
         return out
     }

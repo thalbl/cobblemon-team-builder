@@ -89,8 +89,10 @@ object Network {
         ServerPlayNetworking.registerGlobalReceiver(SearchPayload.TYPE) { payload, context ->
             val player = context.player()
             val result = try {
-                val query = GSON.fromJson(payload.json, SearchRequest::class.java).query.orEmpty().take(40)
-                TeamBuilderService.search(player, query)
+                val request = GSON.fromJson(payload.json, SearchRequest::class.java)
+                val query = request.query.orEmpty().take(40)
+                if (request.kind == "trainer") TeamBuilderService.searchTrainers(player, query)
+                else TeamBuilderService.search(player, query)
             } catch (e: Exception) {
                 TeamBuilderMod.LOGGER.error("Falha na busca de {}", player.gameProfile.name, e)
                 SearchResult()
@@ -107,6 +109,7 @@ object Network {
                     keys = request.keys.orEmpty().take(TeamBuilderService.TEAM_SIZE),
                     add = request.add?.take(200),
                     raid = request.raid?.take(100),
+                    trainer = request.trainer?.take(100),
                     roles = request.roles.orEmpty().take(TeamBuilderService.TEAM_SIZE).map { it?.take(16) },
                 )
                 TeamBuilderService.state(player, safe)

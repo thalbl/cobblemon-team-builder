@@ -49,6 +49,13 @@ class RaidAdvisor(private val moves: Map<String, MoveInfo>) {
         return scored.map { (value, pick) -> pick.copy(score = (100 * value / top).toInt()) }
     }
 
+    /** Valor bruto de [p] contra um oponente (dano causado x quanto aguenta), sem normalizar. */
+    fun matchup(boss: RaidBossInfo, p: Profile): Pair<Double, RaidPick>? {
+        val tera = boss.teraType?.takeIf { TypeChart.indexOf(it) >= 0 }
+        val defense = TypeChart.defensiveProfile(tera?.let(::listOf) ?: boss.types, boss.ability)
+        return evaluate(p, defense, bossAttackTypes(boss, tera))
+    }
+
     private fun bossAttackTypes(boss: RaidBossInfo, tera: String?): List<Int> {
         val types = boss.moves.mapNotNull { moves[it] }
             .filter { it.category != MoveCategory.STATUS }

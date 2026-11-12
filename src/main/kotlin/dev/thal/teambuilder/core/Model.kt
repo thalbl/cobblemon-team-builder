@@ -43,6 +43,8 @@ data class OwnedPokemon(
     /** Identificador da especie ("cobblemon:charizard") e aspectos, para desenhar o modelo. */
     val species: String = "",
     val aspects: Set<String> = emptySet(),
+    /** Item segurado, como id sem separadores ("choicescarf"); vazio se nenhum. */
+    val heldItem: String = "",
 ) {
     val baseStatTotal: Int get() = baseStats.values.sum()
     val ivTotal: Int get() = ivs.values.sum()
