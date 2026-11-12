@@ -115,7 +115,7 @@ As 5 melhores opções para o próximo slot, em duas colunas: **do seu PC** e **
 Os tipos aparecem como ícones.
 
 ### Times
-Três formas diferentes de completar o time a partir dos slots preenchidos, também do seu PC e de todo o Cobblemon. Clique para usar.
+Cinco formas diferentes de completar o time a partir dos slots preenchidos, também do seu PC e de todo o Cobblemon. Clique para usar.
 
 ### Análise
 - **Defesa por tipo:** para cada um dos 18 tipos, o saldo de resistentes menos fracos, com marcas de quantos membros são **imunes (0x)** e quantos levam **4x**. Os tipos perigosos piscam em vermelho. No hover aparece o multiplicador de cada membro, do que leva mais dano para o que leva menos.
@@ -213,7 +213,7 @@ Tudo da tela também existe por chat:
 | `/teambuilder pc` | lista o que o mod enxerga no seu party e PC |
 | `/teambuilder meta <pokemon>` | dados competitivos do Smogon (golpes, itens, spreads, parceiros, counters) |
 | `/teambuilder suggest <pokemon...>` | melhores opções para o próximo slot |
-| `/teambuilder complete <pokemon...>` | 3 formas de completar o time |
+| `/teambuilder complete <pokemon...>` | 5 formas de completar o time |
 | `/teambuilder analyze` | nota do party atual, fraquezas e trocas do PC |
 | `/teambuilder sets [pokemon...]` | set sugerido de cada membro (do party, se não informar nomes) |
 | `/teambuilder raid [chefe [tipo tera]]` | counters contra o chefe da raid |
