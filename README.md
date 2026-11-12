@@ -115,12 +115,13 @@ As 5 melhores opções para o próximo slot, em duas colunas: **do seu PC** e **
 Os tipos aparecem como ícones.
 
 ### Times
-Cinco formas diferentes de completar o time a partir dos slots preenchidos, também do seu PC e de todo o Cobblemon. Clique para usar.
+Cinco formas diferentes de completar o time a partir dos slots preenchidos, também do seu PC e de todo o Cobblemon. Clique para usar. Se a tela for baixa, role a coluna com a rodinha do mouse.
 
 ### Análise
 - **Defesa por tipo:** para cada um dos 18 tipos, o saldo de resistentes menos fracos, com marcas de quantos membros são **imunes (0x)** e quantos levam **4x**. Os tipos perigosos piscam em vermelho. No hover aparece o multiplicador de cada membro, do que leva mais dano para o que leva menos.
 - **Trocas:** a troca de um membro que mais aumenta a nota.
 - **Ameaças:** os Pokémon fortes do meta que o seu time segura mal. Mostra quantos membros ele acerta em cheio (e com quais tipos), quem resiste e quem responde. Quando ninguém consegue bater nele com vantagem, aparece um alerta.
+- **Duplas** (só no 2v2): o time dividido nas 3 melhores duplas, com a sugestão de abertura. Veja [Duplas do 2v2](#duplas-do-2v2).
 
 | Trocas sugeridas | Ameaças |
 |---|---|
@@ -189,6 +190,20 @@ O interruptor **2v2** troca o modo para duplas:
 - a nota passa a valorizar **controle de velocidade** (Tailwind, Trick Room, Icy Wind...), **Fake Out**, **Protect**, **redirecionamento**, **Intimidate** e **golpes em área**;
 - hazards quase não contam;
 - os sets e as sugestões usam estatísticas de uso de duplas (Doubles OU, VGC...).
+
+### Duplas do 2v2
+No 2v2, a Análise ganha o botão **Duplas**. O mod dá uma nota para cada par do time, testa todas as formas de dividir o time em 3 duplas e fica com a de maior soma. A dupla que melhor controla o primeiro turno (Fake Out, Tailwind ou Trick Room, Intimidate, clima) é a sugestão de **abertura**; as outras ficam no banco.
+
+A nota de cada dupla considera:
+- **defesa:** um segura o que o outro não aguenta; os dois fracos ao mesmo tipo perdem pontos;
+- **ataque:** juntos acertam com vantagem tipos que nenhum acerta sozinho;
+- **golpes que acertam o parceiro** (Earthquake, Surf, Discharge): bônus se o parceiro é imune (Voador, Levitate, Telepathy...), penalidade se ele leva o dano;
+- **suporte e atacante:** puxar ataques, Fake Out ou Helping Hand ao lado de quem tem setup ou bate muito forte;
+- **núcleos:** quem ativa clima, terreno ou Trick Room ao lado de quem aproveita;
+- **velocidade:** Trick Room com parceiro lento, Tailwind com parceiro de velocidade média;
+- **meta:** duplas que aparecem juntas no Smogon mais do que o esperado.
+
+Os cartões mostram as duplas com a nota e o principal motivo; o hover lista todos os prós e contras. Ao lado, uma grade mostra a nota de todos os pares possíveis. Nos slots, uma faixa colorida com a letra indica a dupla de cada membro (A = abertura), e o painel do set diz com quem ele faz dupla. As notas usam os golpes do set sugerido, então mudam quando você troca a função de alguém.
 
 ### Busca
 Enquanto você digita, aparecem cards com modelo, tipos e nível, com os **seus** Pokémon primeiro. Enter escolhe o primeiro card e Esc fecha a lista. Para adicionar vários de uma vez, separe por vírgula: `rillaboom, great tusk`.
@@ -300,7 +315,7 @@ python tools/build_snapshot.py --doubles  # duplas (2v2)
 
 | Pasta | Conteúdo |
 |---|---|
-| `core/` | o "cérebro", em Kotlin puro e sem Minecraft: nota, motor de sugestões, sets e funções, ameaças, núcleos, raids e treinadores, traduções, leitor do Smogon. É coberto pelos testes. |
+| `core/` | o "cérebro", em Kotlin puro e sem Minecraft: nota, motor de sugestões, sets e funções, ameaças, núcleos, duplas do 2v2, raids e treinadores, traduções, leitor do Smogon. É coberto pelos testes. |
 | `cobblemon/` | a ponte com o Cobblemon: leitura do party e do PC, catálogo de espécies e golpes, raids (Raid Dens), treinadores (RCT), aplicar o time |
 | `client/` | a tela, os modelos 3D e os times salvos |
 | `net/` | pacotes entre servidor e cliente |
