@@ -108,6 +108,16 @@ data class SetView(
 data class ChecklistItemView(val kind: String, val id: String, val state: String, val detail: String = "")
 
 /** Nucleo ativo (clima, terreno, Trick Room) com quem ativa e quem aproveita. */
+/** Uma dupla do 2v2: indices no time, nota, se e a abertura sugerida e os motivos. */
+data class PairView(
+    val a: Int,
+    val b: Int,
+    val score: Double,
+    val lead: Boolean,
+    val good: List<String>,
+    val bad: List<String>,
+)
+
 data class CoreView(val id: String, val label: String, val setters: List<String>, val abusers: List<String>)
 
 data class ThreatView(
@@ -216,6 +226,9 @@ data class BuilderState(
     val cores: List<CoreView> = emptyList(),
     val coresScore: Double = 0.0,
     val threats: List<ThreatView> = emptyList(),
+    /** So no 2v2: o time dividido em duplas (a primeira e a abertura) e a nota de cada par. */
+    val pairs: List<PairView> = emptyList(),
+    val pairMatrix: List<List<Double>> = emptyList(),
     val trainer: TrainerView? = null,
     val error: String? = null,
     /** Mensagem de sucesso (ex.: time aplicado ao party). */

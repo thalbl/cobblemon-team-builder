@@ -16,6 +16,8 @@ data class MoveInfo(
     val priority: Int,
     /** Acerta os dois oponentes (ou todos) numa batalha dupla. */
     val spread: Boolean = false,
+    /** Acerta tambem o parceiro (Earthquake, Surf, Discharge...). */
+    val hitsAlly: Boolean = false,
 )
 
 /** Algo que pode ocupar um slot: um Pokemon do jogador ou uma especie/forma qualquer. */

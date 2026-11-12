@@ -55,6 +55,8 @@ class Catalog private constructor(
     val threats = dev.thal.teambuilder.core.ThreatAnalyzer(moves)
     val battles = dev.thal.teambuilder.core.BattleAdvisor(raids)
 
+    val pairs = dev.thal.teambuilder.core.PairAdvisor(moves, scorer)
+
     fun engine(options: BuildOptions = BuildOptions(), lang: Lang = Lang.EN) = TeamBuilderEngine(scorer, options, lang)
 
     companion object {
@@ -84,6 +86,7 @@ class Catalog private constructor(
                     power = m.power.toInt(),
                     priority = m.priority,
                     spread = m.target.name.startsWith("all"),
+                    hitsAlly = m.target.name == "allAdjacent",
                 )
             }
             val builder = ProfileBuilder(meta, moves, format)

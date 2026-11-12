@@ -66,6 +66,14 @@ object SetText {
         return out
     }
 
+    private val MOVE_TOKEN = Regex("<([a-z0-9]+)>")
+
+    /** Troca "<earthquake>" pelo nome traduzido do golpe (o servidor so conhece o id). */
+    fun moves(text: String): String = MOVE_TOKEN.replace(text) { m ->
+        val id = m.groupValues[1]
+        net.minecraft.locale.Language.getInstance().getOrDefault("cobblemon.move.$id", id.replaceFirstChar { it.uppercase() })
+    }
+
     /** "{fire}{flying}" -> "fire/flying", para lugares que so aceitam texto puro. */
     fun flat(text: String): String = Lang.TYPE_TOKEN.replace(text) { it.groupValues[1] }.replace("}{", "/")
 

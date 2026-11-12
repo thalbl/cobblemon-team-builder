@@ -75,7 +75,8 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
     private var trainerList: SearchResult? = null
 
     /** Analise: false = trocas sugeridas, true = ameacas ao time. */
-    private var showThreats = false
+    /** Parte de baixo da Analise: 0 = trocas, 1 = ameacas, 2 = duplas (so no 2v2). */
+    private var analysisMode = 0
 
     /** Painel da direita: false = set sugerido, true = o que falta para montar o set. */
     private var showChecklist = false
@@ -522,6 +523,13 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             val afterTypes = typeIcons(ui, slot.types, slot.ability, slot.name, tx, y + 15)
             if (slot.mega) ui.text("M", afterTypes + 1, y + 16, Palette.GOLD, 0.75f)
             if (slot.inParty) ui.rect(x + 3, y + 3, 3, 3, Palette.OWNED)
+            val pairIdx = if (s.doubles) pairOf(s, i) else -1
+            if (pairIdx >= 0) {
+                // Faixa na cor da dupla; a letra diz qual (A = abertura).
+                val pc = pairColors[pairIdx % pairColors.size]
+                ui.rect(x + 1, y + 1, 2, h - 2, pc)
+                ui.text(('A' + pairIdx).toString(), x + 4, y + h - 9, pc, 0.75f)
+            }
             val roleText = set?.roleLabel?.takeIf { it.isNotEmpty() } ?: slot.roles.take(2).joinToString(", ")
             ui.text(ui.fit(roleText, w - 36, 0.75f), tx, y + 28, if (set != null) Palette.CYAN else Palette.MUTED, 0.75f)
 
@@ -755,8 +763,11 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         val w = columnWidth()
         // Alterna entre trocas sugeridas e ameacas ao time.
         var tx = pad
-        for ((threatMode, label) in listOf(false to t("analysis.swaps"), true to t("analysis.threats") + " (${s.threats.size})")) {
-            val active = showThreats == threatMode
+        val modes = listOf(0 to t("analysis.swaps"), 1 to t("analysis.threats") + " (${s.threats.size})") +
+            (if (s.doubles && s.pairs.isNotEmpty()) listOf(2 to t("analysis.pairs")) else emptyList())
+        if (modes.none { it.first == analysisMode }) analysisMode = 0
+        for ((threatMode, label) in modes) {
+            val active = analysisMode == threatMode
             val lw = ui.width(label, 0.75f) + 8
             val hover = smooth("amode:$threatMode", if (ui.over(tx, swapTop - 2, lw, 10)) 1f else 0f)
             ui.panel(
@@ -765,20 +776,121 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
                 if (active) Palette.GOLD else Palette.EDGE,
             )
             ui.text(label, tx + 4, swapTop, if (active) Palette.GOLD else Palette.mix(Palette.MUTED, Palette.TEXT, hover), 0.75f)
-            ui.hit(tx, swapTop - 2, lw, 10, Component.literal(t(if (threatMode) "analysis.threats_tip" else "analysis.swaps_tip"))) {
-                showThreats = threatMode
+            val modeTip = when (threatMode) { 1 -> "analysis.threats_tip"; 2 -> "analysis.pairs_tip"; else -> "analysis.swaps_tip" }
+            ui.hit(tx, swapTop - 2, lw, 10, Component.literal(t(modeTip))) {
+                analysisMode = threatMode
                 contentAt = now()
             }
             tx += lw + 3
         }
-        if (showThreats) {
+        if (analysisMode == 1) {
             threatColumns(ui, s, swapTop + 11)
+            return
+        }
+        if (analysisMode == 2) {
+            pairColumns(ui, s, swapTop + 11)
             return
         }
         ui.text(t("column.pc"), tx + 3, swapTop, Palette.OWNED, 0.75f)
         ui.text(t("column.all"), pad + w + 4, swapTop, Palette.CATALOG, 0.75f)
         swapColumn(ui, "pc", pad, swapTop + 11, w, s.pcSwaps)
         swapColumn(ui, "all", pad + w + 4, swapTop + 11, w, s.allSwaps)
+    }
+
+    /** Cor de cada dupla: a abertura em dourado, as do banco em ciano e lilas. */
+    private val pairColors = intArrayOf(Palette.GOLD, Palette.CYAN, 0xFFC59BFF.toInt())
+
+    /** Indice da dupla de quem esta no slot [i], ou -1. */
+    private fun pairOf(s: BuilderState, i: Int): Int = s.pairs.indexOfFirst { it.a == i || it.b == i }
+
+    private fun pairTip(s: BuilderState, p: dev.thal.teambuilder.core.PairView): Component {
+        val a = s.team.getOrNull(p.a)?.name.orEmpty()
+        val b = s.team.getOrNull(p.b)?.name.orEmpty()
+        val out = Component.literal("$a + $b").withStyle(if (p.lead) ChatFormatting.GOLD else ChatFormatting.WHITE)
+            .append(Component.literal("  " + t("label.score_lower") + " %.1f".format(p.score)).withStyle(if (p.score >= 0) ChatFormatting.GREEN else ChatFormatting.RED))
+        if (p.lead) out.append("\n").append(Component.literal(t("pair.lead_tip")).withStyle(ChatFormatting.GOLD))
+        for (r in p.good) out.append("\n").append(Component.literal("+ ").withStyle(ChatFormatting.GREEN)).append(SetText.rich(SetText.moves(r), ChatFormatting.GRAY))
+        for (r in p.bad) out.append("\n").append(Component.literal("- ").withStyle(ChatFormatting.RED)).append(SetText.rich(SetText.moves(r), ChatFormatting.GRAY))
+        return out
+    }
+
+    /** Duplas do 2v2: cartoes a esquerda (abertura primeiro) e a nota de todos os pares a direita. */
+    private fun pairColumns(ui: Ui, s: BuilderState, top: Int) {
+        if (s.pairs.isEmpty()) return empty(ui, pad, top, t("pair.none"))
+        val w = columnWidth()
+        val h = 34
+        val best = s.pairs.maxOf { it.score }.coerceAtLeast(0.1)
+        for ((i, p) in s.pairs.withIndex()) {
+            val a = s.team.getOrNull(p.a) ?: continue
+            val b = s.team.getOrNull(p.b) ?: continue
+            val y = top + i * (h + 2)
+            if (y + h > bodyBottom) break
+            val color = pairColors[i % pairColors.size]
+            val (ax, al, hover) = card(ui, "pair:${a.key}:${b.key}", i, pad, y, w, h, color, pairTip(s, p), null)
+            if (al > 0.6f) {
+                val tick = if (hover > 0.5f) ui.partialTick else 0f
+                PokemonModels.draw(ui.g, "pairA:${a.key}", a.species, a.aspects, ax + 3, y + 4, 24, tick, zoom = 1f + 0.1f * hover)
+                PokemonModels.draw(ui.g, "pairB:${b.key}", b.species, b.aspects, ax + 25, y + 4, 24, tick, zoom = 1f + 0.1f * hover)
+            }
+            val tx = ax + 52
+            val tag = if (p.lead) t("pair.lead") else t("pair.back")
+            ui.textRight(tag, ax + w - 4, y + 3, Palette.alpha(color, al), 0.75f)
+            ui.text(ui.fit("${a.name} + ${b.name}", ax + w - tx - 8 - ui.width(tag, 0.75f)), tx, y + 3, Palette.alpha(Palette.TEXT, al))
+            // Barra da nota, relativa a melhor dupla do time.
+            val barW = w - 52 - 34
+            val fill = ((p.score / best).coerceIn(0.0, 1.0) * barW).toInt()
+            val scoreColor = if (p.score >= 0) Palette.GOOD else Palette.BAD
+            ui.rect(tx, y + 13, barW, 3, Palette.alpha(Palette.EDGE, al))
+            ui.rect(tx, y + 13, fill, 3, Palette.alpha(scoreColor, al))
+            ui.text("%.1f".format(p.score), tx + barW + 3, y + 11, Palette.alpha(scoreColor, al), 0.75f)
+            // Um problema tem prioridade; sem problemas, o primeiro ponto forte.
+            val line = p.bad.firstOrNull()?.let { it to Palette.BAD } ?: p.good.firstOrNull()?.let { it to Palette.MUTED }
+            if (line != null) ui.rich(SetText.moves(line.first), tx, y + 21, Palette.alpha(line.second, al), 0.75f, w - 56)
+        }
+        pairMatrix(ui, s, pad + w + 4, top, w)
+    }
+
+    /** Nota de todos os pares do time; as duplas escolhidas ficam com a borda na cor delas. */
+    private fun pairMatrix(ui: Ui, s: BuilderState, x: Int, top: Int, w: Int) {
+        val n = s.team.size
+        if (n < 2 || s.pairMatrix.size != n) return
+        ui.text(t("pair.matrix"), x, top, Palette.MUTED, 0.75f)
+        val head = 20
+        val gy = top + 10
+        val cell = min(22, min((w - head) / n, (bodyBottom - gy - head) / n))
+        if (cell < 10) return
+        val all = s.pairMatrix.flatten()
+        val hi = all.maxOrNull()?.coerceAtLeast(0.1) ?: 1.0
+        val lo = all.minOrNull()?.coerceAtMost(-0.1) ?: -1.0
+        val icon = min(18, cell)
+        for (i in 0 until n) {
+            val slot = s.team[i]
+            val pi = pairOf(s, i)
+            val c = if (pi >= 0) pairColors[pi % pairColors.size] else Palette.FAINT
+            PokemonModels.draw(ui.g, "mxr:${slot.key}", slot.species, slot.aspects, x, gy + head + i * cell + (cell - icon) / 2, icon)
+            PokemonModels.draw(ui.g, "mxc:${slot.key}", slot.species, slot.aspects, x + head + i * cell + (cell - icon) / 2, gy, icon)
+            ui.rect(x + head - 3, gy + head + i * cell + 2, 2, cell - 4, c)
+            ui.rect(x + head + i * cell + 2, gy + head - 3, cell - 4, 2, c)
+        }
+        for (i in 0 until n) for (j in 0 until n) {
+            val cx = x + head + j * cell
+            val cy = gy + head + i * cell
+            if (i == j) {
+                ui.panel(cx, cy, cell - 1, cell - 1, Palette.alpha(Palette.CARD, 0.4f), Palette.PANEL_EDGE)
+                continue
+            }
+            val v = s.pairMatrix[i][j]
+            val tint = if (v >= 0) Palette.mix(Palette.CARD, Palette.GOOD, (0.15 + 0.6 * v / hi).toFloat().coerceIn(0f, 0.75f))
+                else Palette.mix(Palette.CARD, Palette.BAD, (0.15 + 0.6 * v / lo).toFloat().coerceIn(0f, 0.75f))
+            val chosen = s.pairs.indexOfFirst { (it.a == i && it.b == j) || (it.a == j && it.b == i) }
+            val edge = if (chosen >= 0) pairColors[chosen % pairColors.size] else Palette.PANEL_EDGE
+            ui.panel(cx, cy, cell - 1, cell - 1, tint, edge)
+            ui.textCentered("%.1f".format(v), cx + cell / 2, cy + (cell - 6) / 2, if (v >= 0) Palette.TEXT else Palette.BAD, 0.6f)
+            val tip = Component.literal("${s.team[i].name} + ${s.team[j].name}").withStyle(ChatFormatting.WHITE)
+                .append(Component.literal("  " + t("label.score_lower") + " %.1f".format(v)).withStyle(if (v >= 0) ChatFormatting.GREEN else ChatFormatting.RED))
+            if (chosen >= 0) tip.append("\n").append(Component.literal(t(if (chosen == 0) "pair.lead" else "pair.back")).withStyle(ChatFormatting.GOLD))
+            ui.hit(cx, cy, cell - 1, cell - 1, tip)
+        }
     }
 
     /** Ameacas do meta ao time, em duas colunas. */
@@ -1204,6 +1316,16 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         var cy = y + 50
         cy += advisorToggle(ui, x + 6, cy, set, tt)
         if (slot.forms.size > 1) cy += formChips(ui, x + 6, cy, w - 12, slot, tt)
+        // 2v2: com quem ele faz dupla (hover mostra os motivos).
+        val pairIdx = if (s.doubles) pairOf(s, selected) else -1
+        val pair = s.pairs.getOrNull(pairIdx)
+        val mate = pair?.let { s.team.getOrNull(if (it.a == selected) it.b else it.a) }
+        if (pair != null && mate != null) {
+            val label = t(if (pair.lead) "pair.with_lead" else "pair.with", mate.name)
+            ui.text(label, x + 6, cy + 1, Palette.alpha(pairColors[pairIdx % pairColors.size], tt), 0.75f)
+            ui.hit(x + 6, cy, ui.width(label, 0.75f), 9, pairTip(s, pair))
+            cy += 11
+        }
         if (set.roleOptions.isNotEmpty()) cy += roleChips(ui, x + 6, cy, w - 12, slot, set, tt)
         if (showChecklist) {
             checklist(ui, x + 6, cy, w - 12, set, tt)

@@ -7,6 +7,7 @@ import dev.thal.teambuilder.core.BuildOptions
 import dev.thal.teambuilder.core.ChecklistItemView
 import dev.thal.teambuilder.core.CoreView
 import dev.thal.teambuilder.core.Cores
+import dev.thal.teambuilder.core.PairView
 import dev.thal.teambuilder.core.CounterView
 import dev.thal.teambuilder.core.MoveStatus
 import dev.thal.teambuilder.core.ThreatView
@@ -238,9 +239,13 @@ object TeamBuilderService {
             else engine.suggestNext(team, pool, 5).map { PickView(slot(it.pick, s), it.gain, it.reasons) }
 
         val chosen = team.map { chosenByKey[key(it)] ?: chosenByKey[baseKey(it, s)] }
+        val sets = teamSets(s, team, chosen, inventory(player))
+        // Duplas do 2v2, com os golpes dos sets sugeridos.
+        val plan = if (s.options.format != Format.DOUBLES || trainer != null || raid != null) null
+            else s.catalog.pairs.plan(team, sets.map { set -> set.moves.map { it.id } }, lang)
         return BuilderState(
             team = team.map { slot(it, s, withForms = true) },
-            sets = teamSets(s, team, chosen, inventory(player)),
+            sets = sets,
             total = b.total, strength = b.strength, defense = b.defense,
             offense = b.offense, roles = b.roles, synergy = b.synergy,
             weaknesses = engine.weaknesses(team),
@@ -261,6 +266,8 @@ object TeamBuilderService {
             },
             coresScore = b.cores,
             threats = threats,
+            pairs = plan?.pairs.orEmpty().mapIndexed { k, p -> PairView(p.a, p.b, p.score, k == 0, p.good, p.bad) },
+            pairMatrix = plan?.matrix.orEmpty(),
             trainer = trainer,
             error = error,
             notice = notice,
