@@ -2,6 +2,41 @@
 
 Mod Fabric para Minecraft 1.21.1 + Cobblemon 1.7 que analisa os Pokémon do seu party e PC e monta times para batalhas 1v1 (singles) e 2v2 (duplas). Para abrir, aperte **H**.
 
+## Download
+
+O jar pronto fica em [`dist/`](dist/). Coloque-o na pasta `mods` junto com as dependências abaixo.
+
+## Dependências
+
+**Obrigatórias** (o jogo não abre sem elas):
+
+| Mod | Versão mínima | Testado com |
+|---|---|---|
+| Minecraft | 1.21.1 | 1.21.1 |
+| Java | 21 | 21 |
+| [Fabric Loader](https://fabricmc.net/use/) | 0.17.2 | 0.17.2 |
+| [Fabric API](https://modrinth.com/mod/fabric-api) | 0.116.6+1.21.1 | 0.116.14+1.21.1 |
+| [Fabric Language Kotlin](https://modrinth.com/mod/fabric-language-kotlin) | 1.13.6+kotlin.2.2.20 | 1.13.13+kotlin.2.4.10 |
+| [Cobblemon](https://modrinth.com/mod/cobblemon) | 1.7.3 | 1.7.3+1.21.1 |
+
+**Opcionais** (cada uma liga um recurso; sem elas o resto funciona normalmente):
+
+| Mod | O que libera | Testado com |
+|---|---|---|
+| [Cobblemon Raid Dens](https://modrinth.com/mod/cobblemonraiddens) | detectar o chefe da raid mais próxima (sem ele, digite o chefe à mão) | 0.11.3+1.21.1 |
+| [Radical Cobblemon Trainers](https://modrinth.com/mod/rctmod) | aba Treinadores (times de líderes, Elite 4, campeões...) | 0.18.1-beta |
+| [Cobblemon: Mega Showdown](https://modrinth.com/mod/cobblemon-mega-showdown) | formas mega para sugerir e alternar (o Cobblemon não tem megas sozinho) | 1.8.4+1.7.3+1.21.1 |
+
+Quem joga o **COBBLEVERSE** já tem todas essas dependências: basta colocar o jar do Team Builder na pasta `mods`.
+
+### Servidor
+
+O mod precisa estar **no servidor e em cada jogador**. O servidor faz todo o cálculo (lê o PC e o party, os dados do Smogon e os treinadores) e o cliente só mostra a tela.
+
+- Jogador sem o mod num servidor com o mod: entra normalmente, só não tem a tela (os comandos `/teambuilder` funcionam pelo chat).
+- Jogador com o mod num servidor sem o mod: a tela avisa que o servidor não tem o Team Builder.
+- Em mundo single-player funciona direto.
+
 ## Recursos
 
 - **Sugestões** para o próximo slot, vindas do seu PC e de todo o Cobblemon, com os motivos de cada uma (tipos que segura, tipos em que bate, funções que traz).
