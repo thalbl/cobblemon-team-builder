@@ -99,6 +99,9 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
     private val smooth = HashMap<String, Float>()
     private val hits = ArrayList<Hit>()
 
+    /** Tooltips da tabela de tipos; entram por ultimo para ficar por cima dos cards. */
+    private val typeTips = ArrayList<Hit>()
+
     private val keys: List<String> get() = state?.team?.map { it.key } ?: emptyList()
 
     // ------------------------------------------------------------------ dados
@@ -345,6 +348,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         dt = ((time - lastFrame) / 1000f).coerceIn(0f, 0.1f)
         lastFrame = time
         hits.clear()
+        typeTips.clear()
 
         val ui = Ui(graphics, font, mouseX, mouseY, partialTick, hits)
         ui.rect(0, 0, width, height, Palette.DIM)
@@ -374,6 +378,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         searchDropdown(ui, s)
         input?.render(graphics, mouseX, mouseY, partialTick)
 
+        hits += typeTips
         hits.lastOrNull { it.tooltip != null && it.contains(mouseX.toDouble(), mouseY.toDouble()) }?.tooltip?.let {
             graphics.renderTooltip(font, font.split(it, 220), mouseX, mouseY)
         }
@@ -514,7 +519,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             )
             val tx = x + 34
             ui.text(ui.fit(slot.name, w - 36 - 9), tx, y + 4, accent)
-            val afterTypes = ui.types(slot.types, tx, y + 15)
+            val afterTypes = typeIcons(ui, slot.types, slot.ability, slot.name, tx, y + 15)
             if (slot.mega) ui.text("M", afterTypes + 1, y + 16, Palette.GOLD, 0.75f)
             if (slot.inParty) ui.rect(x + 3, y + 3, 3, 3, Palette.OWNED)
             val roleText = set?.roleLabel?.takeIf { it.isNotEmpty() } ?: slot.roles.take(2).joinToString(", ")
@@ -659,7 +664,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             val gain = "+%.1f".format(p.gain)
             ui.textRight(gain, ax + w - 4, y + 3, Palette.alpha(Palette.GOOD, a))
             ui.text(ui.fit(p.slot.name, w - box - 12 - ui.width(gain)), tx, y + 3, Palette.alpha(accentOf(p.slot), a))
-            ui.types(p.slot.types, tx, y + 13, a)
+            typeIcons(ui, p.slot.types, p.slot.ability, p.slot.name, tx, y + 13, a)
             if (h >= 29) {
                 ui.rich(p.reasons.firstOrNull().orEmpty(), tx + 22, y + 15, Palette.alpha(Palette.MUTED, a), 0.75f, w - box - 10 - 22)
                 ui.rich(p.reasons.getOrNull(1).orEmpty(), tx, y + 23, Palette.alpha(Palette.FAINT, a), 0.75f, w - box - 10)
@@ -727,13 +732,22 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
                 else -> Palette.CARD
             }
             ui.panel(x, y, cw, ch, Palette.alpha(tint, tt), Palette.alpha(if (exposed) Palette.BAD else Palette.PANEL_EDGE, tt))
-            ui.types(listOf(b.type), x + (cw - Ui.TYPE_ICON) / 2, y + 2, tt)
+            ui.types(listOf(b.type), x + 3, y + 2, tt)
             val label = if (net > 0) "+$net" else "$net"
-            ui.textCentered(label, x + cw / 2, y + 12, Palette.alpha(if (net > 0) Palette.GOOD else if (net < 0) Palette.BAD else Palette.FAINT, tt))
+            ui.textRight(label, x + cw - 3, y + 3, Palette.alpha(if (net > 0) Palette.GOOD else if (net < 0) Palette.BAD else Palette.FAINT, tt))
+            // Marcas de quem e imune e de quem leva 4x, para ver de longe sem abrir o tooltip.
+            val immune = b.multipliers.count { it == 0.0 }
+            val quad = b.multipliers.count { it >= 4.0 }
+            var mx = x + 3
+            if (immune > 0) {
+                val m = "0x$immune"
+                ui.text(m, mx, y + 13, Palette.alpha(Palette.CYAN, tt), 0.6f)
+                mx += ui.width(m, 0.6f) + 3
+            }
+            if (quad > 0) ui.text("4x$quad", mx, y + 13, Palette.alpha(Palette.BAD, tt), 0.6f)
             ui.hit(
                 x, y, cw, ch,
-                Component.literal(t("analysis.type_attacks") + " ").append(SetText.type(b.type))
-                    .append("\n" + t("analysis.type_counts", b.weak, b.resist)),
+                typeBalanceTip(s, b),
             )
         }
 
@@ -795,7 +809,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             val tx = ax + 31
             val score = "${th.score}%"
             ui.textRight(score, ax + w - 4, y + 3, Palette.alpha(Palette.BAD, a), 0.75f)
-            val after = ui.types(th.slot.types, tx, y + 2, a)
+            val after = typeIcons(ui, th.slot.types, th.slot.ability, th.slot.name, tx, y + 2, a)
             ui.text(ui.fit(th.slot.name, ax + w - after - 10 - ui.width(score, 0.75f)), after + 3, y + 3, Palette.alpha(Palette.TEXT, a))
             ui.rich(t("threat.hits", th.weak.size, th.hitting), tx, y + 13, Palette.alpha(Palette.MUTED, a), 0.75f, w - 35)
             val answer = if (th.answers.isEmpty()) t("threat.no_answer") else t("threat.answers", th.answers.joinToString())
@@ -1012,7 +1026,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             }
             ui.text(ui.fit(e.slot.name, ew - 30, 0.75f), ax + 27, ey + 4, Palette.alpha(Palette.TEXT, a), 0.75f)
             ui.text(t("info.level_short", e.level), ax + 27, ey + 12, Palette.alpha(Palette.GOLD, a), 0.75f)
-            ui.types(e.slot.types, ax + 27, ey + 19, a)
+            typeIcons(ui, e.slot.types, e.slot.ability, e.slot.name, ax + 27, ey + 19, a)
             val answer = if (answered) e.answer else if (s.team.isEmpty()) "" else t("trainer.no_answer_short")
             ui.text(ui.fit(answer, ew - 6, 0.75f), ax + 3, ey + eh - 9, Palette.alpha(if (answered) Palette.OWNED else Palette.BAD, a), 0.75f)
         }
@@ -1145,7 +1159,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             }
             ui.text(ui.fit(slot.name, w - 32 - ui.width(tag, 0.75f)), tx, y + 2, if (taken) Palette.FAINT else accentOf(slot))
             ui.textRight(tag, x + w - 5, y + 3, if (taken) Palette.FAINT else Palette.OWNED, 0.75f)
-            val after = ui.types(slot.types, tx, y + 11)
+            val after = typeIcons(ui, slot.types, slot.ability, slot.name, tx, y + 11, onTop = true)
             ui.text(ui.fit(slot.info, x + w - after - 8, 0.75f), after + 3, y + 12, Palette.FAINT, 0.75f)
             val tip = Component.literal(slot.name).append("\n").append(Component.literal(slot.info).withStyle(ChatFormatting.GRAY))
                 .append("\n\n").append(Component.literal(if (raidMode) t("search.use_as_boss") else t("tip.click_add")).withStyle(ChatFormatting.DARK_GRAY))
@@ -1183,7 +1197,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         PokemonModels.draw(ui.g, "advisor:${slot.key}", slot.species, slot.aspects, x + 5, y + 4, 38, ui.partialTick, yaw = 35f + 22f * sin(now() / 1300.0).toFloat(), zoom = 0.85f + 0.15f * tt)
         val tx = x + 48
         ui.text(ui.fit(slot.name, w - 52), tx, y + 5, Palette.alpha(accent, tt))
-        ui.types(slot.types, tx, y + 16, tt)
+        typeIcons(ui, slot.types, slot.ability, slot.name, tx, y + 16, tt)
         ui.text(ui.fit(slot.info, w - 52, 0.75f), tx, y + 28, Palette.alpha(Palette.MUTED, tt), 0.75f)
         ui.text(ui.fit(slot.roles.joinToString(", "), w - 52, 0.75f), tx, y + 37, Palette.alpha(Palette.FAINT, tt), 0.75f)
 
@@ -1305,6 +1319,78 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             }
             ui.hit(x, ry, w, rowH - 1, tip)
         }
+    }
+
+    /** Desenha os icones de tipo e, no hover, a tabela de defesa daquele Pokemon. */
+    private fun typeIcons(
+        ui: Ui, types: List<String>, ability: String, name: String, x: Int, y: Int, opacity: Float = 1f, onTop: Boolean = false,
+    ): Int {
+        val end = ui.types(types, x, y, opacity)
+        if (opacity < 0.6f || end <= x) return end
+        val o = PokemonModels.occluder
+        if (!onTop && o != null && x < o[2] && end > o[0] && y < o[3] && y + Ui.TYPE_ICON > o[1]) return end
+        typeTips += Hit(x, y, end - x, Ui.TYPE_ICON, typeChartTip(types, ability, name), null)
+        return end
+    }
+
+    private fun multiplierColor(m: Double): ChatFormatting = when {
+        m == 0.0 -> ChatFormatting.AQUA
+        m >= 4.0 -> ChatFormatting.DARK_RED
+        m > 1.0 -> ChatFormatting.RED
+        m < 1.0 -> ChatFormatting.GREEN
+        else -> ChatFormatting.GRAY
+    }
+
+    private fun multiplierText(m: Double): String = when (m) {
+        0.0 -> t("chart.immune")
+        0.25 -> "¼x"
+        0.5 -> "½x"
+        else -> SetText.multiplier(m)
+    }
+
+    /** "Leva 4x: ...  2x: ...  Resiste: ...  Imune: ..." com os tipos coloridos. */
+    private fun typeChartTip(types: List<String>, ability: String, name: String): Component {
+        val profile = dev.thal.teambuilder.core.TypeChart.defensiveProfile(types, ability.ifEmpty { null })
+        val plain = dev.thal.teambuilder.core.TypeChart.defensiveProfile(types, null)
+        val out = Component.literal(t("chart.title", name)).withStyle(ChatFormatting.GOLD)
+        val groups = listOf(
+            "chart.x4" to { m: Double -> m >= 4.0 },
+            "chart.x2" to { m: Double -> m > 1.0 && m < 4.0 },
+            "chart.x05" to { m: Double -> m > 0.25 && m < 1.0 },
+            "chart.x025" to { m: Double -> m > 0.0 && m <= 0.25 },
+            "chart.x0" to { m: Double -> m == 0.0 },
+        )
+        val colors = listOf(ChatFormatting.DARK_RED, ChatFormatting.RED, ChatFormatting.GREEN, ChatFormatting.DARK_GREEN, ChatFormatting.AQUA)
+        for ((g, pair) in groups.withIndex()) {
+            val (key, test) = pair
+            val hit = dev.thal.teambuilder.core.TypeChart.TYPES.filterIndexed { i, _ -> test(profile[i]) }
+            if (hit.isEmpty()) continue
+            out.append("\n").append(Component.literal(t(key) + " ").withStyle(colors[g]))
+            hit.forEachIndexed { k, type ->
+                if (k > 0) out.append(Component.literal(" ").withStyle(ChatFormatting.DARK_GRAY))
+                out.append(SetText.type(type))
+            }
+        }
+        val changed = dev.thal.teambuilder.core.TypeChart.TYPES.indices.any { profile[it] != plain[it] }
+        if (changed && ability.isNotEmpty()) {
+            out.append("\n").append(Component.literal(t("chart.ability") + " ").withStyle(ChatFormatting.DARK_GRAY))
+                .append(SetText.ability(ability).withStyle(ChatFormatting.GRAY))
+        }
+        return out
+    }
+
+    /** Tooltip de um tipo na analise: quanto cada membro leva, do pior para o melhor. */
+    private fun typeBalanceTip(s: BuilderState, b: dev.thal.teambuilder.core.TypeBalanceView): Component {
+        val out = Component.literal(t("analysis.type_attacks") + " ").append(SetText.type(b.type))
+            .append(Component.literal("\n" + t("analysis.type_counts", b.weak, b.resist)).withStyle(ChatFormatting.GRAY))
+        val members = s.team.indices.mapNotNull { i -> b.multipliers.getOrNull(i)?.let { s.team[i].name to it } }
+            .sortedByDescending { it.second }
+        if (members.isNotEmpty()) out.append("\n")
+        for ((name, m) in members) {
+            out.append("\n").append(Component.literal(multiplierText(m)).withStyle(multiplierColor(m)))
+                .append(Component.literal("  $name").withStyle(if (m == 1.0) ChatFormatting.GRAY else ChatFormatting.WHITE))
+        }
+        return out
     }
 
     /** Linha de chips clicaveis; devolve a altura usada. */

@@ -64,7 +64,7 @@
   "teams.option": "Option %s",
   "analysis.empty": "Add Pokémon to the team to see the analysis.",
   "analysis.defense": "DEFENSE BY TYPE",
-  "analysis.legend": "resistant minus weak",
+  "analysis.legend": "resistant minus weak · 0x = immune · 4x = takes 4x",
   "analysis.type_attacks": "Attacks of type",
   "analysis.type_counts": "%s weak, %s resistant or immune",
   "analysis.swaps": "SUGGESTED SWAPS",
@@ -302,5 +302,13 @@
   "cmd.snapshot_latest": "latest month",
   "cmd.snapshot_done": "Snapshot updated: %s, %s Pokémon.",
   "cmd.snapshot_failed": "Snapshot update failed: %s",
-  "cmd.snapshot_reset": "back to the bundled snapshots."
+  "cmd.snapshot_reset": "back to the bundled snapshots.",
+  "chart.title": "%s's defenses",
+  "chart.x4": "Takes 4x:",
+  "chart.x2": "Takes 2x:",
+  "chart.x05": "Resists (½x):",
+  "chart.x025": "Double resists (¼x):",
+  "chart.x0": "Immune:",
+  "chart.immune": "immune",
+  "chart.ability": "Including the ability"
 }

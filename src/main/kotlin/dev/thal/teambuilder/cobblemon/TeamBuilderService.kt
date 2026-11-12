@@ -246,7 +246,7 @@ object TeamBuilderService {
             weaknesses = engine.weaknesses(team),
             typeBalance = TypeChart.TYPES.mapIndexed { i, type ->
                 val (weak, resist) = s.catalog.scorer.exposure(team, i)
-                TypeBalanceView(type, weak, resist)
+                TypeBalanceView(type, weak, resist, team.map { it.defense[i] })
             },
             pcPicks = picks(s.owned), allPicks = picks(everything),
             pcTeams = teams(s.owned), allTeams = teams(everything),
@@ -382,7 +382,10 @@ object TeamBuilderService {
             id = t.id, name = t.name, type = t.typeLabel,
             enemies = enemies.mapIndexed { i, e ->
                 TrainerEnemyView(
-                    slot(e.profile, s).copy(level = e.level, info = s.lang.t("info.level_short", e.level)),
+                    slot(e.profile, s).copy(
+                        level = e.level, info = s.lang.t("info.level_short", e.level),
+                        ability = e.ability.ifEmpty { e.profile.ability },
+                    ),
                     e.level, e.moves, e.ability, e.item, e.nature, answers[i]?.first?.name.orEmpty(),
                 )
             },
@@ -524,6 +527,7 @@ object TeamBuilderService {
         mega = p.isMega,
         forms = if (withForms) forms(p, s) else emptyList(),
         inParty = p.candidate.owned?.source == Source.PARTY,
+        ability = p.ability,
     )
 
     /** Forma normal + megas da especie, para alternar direto no slot. */

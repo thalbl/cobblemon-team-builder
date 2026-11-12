@@ -64,7 +64,7 @@
   "teams.option": "Opção %s",
   "analysis.empty": "Adicione Pokémon ao time para ver a análise.",
   "analysis.defense": "DEFESA POR TIPO",
-  "analysis.legend": "resistentes menos fracos",
+  "analysis.legend": "resistentes menos fracos · 0x = imunes · 4x = levam 4x",
   "analysis.type_attacks": "Ataques do tipo",
   "analysis.type_counts": "%s fraco(s), %s resistente(s) ou imune(s)",
   "analysis.swaps": "TROCAS SUGERIDAS",
@@ -302,5 +302,13 @@
   "cmd.snapshot_latest": "mês mais recente",
   "cmd.snapshot_done": "Snapshot atualizado: %s, %s Pokémon.",
   "cmd.snapshot_failed": "Falha ao atualizar o snapshot: %s",
-  "cmd.snapshot_reset": "voltou aos snapshots que vêm no jar."
+  "cmd.snapshot_reset": "voltou aos snapshots que vêm no jar.",
+  "chart.title": "Defesa de %s",
+  "chart.x4": "Leva 4x:",
+  "chart.x2": "Leva 2x:",
+  "chart.x05": "Resiste (½x):",
+  "chart.x025": "Resiste muito (¼x):",
+  "chart.x0": "Imune:",
+  "chart.immune": "imune",
+  "chart.ability": "Considerando a habilidade"
 }

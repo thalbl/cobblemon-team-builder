@@ -50,6 +50,8 @@ data class SlotView(
     val forms: List<FormView> = emptyList(),
     /** Esta no party agora (so para Pokemon do jogador). */
     val inParty: Boolean = false,
+    /** Habilidade considerada na defesa (Levitate, Flash Fire...), para a tabela de tipos no hover. */
+    val ability: String = "",
 )
 
 data class MoveView(
@@ -149,7 +151,13 @@ data class PickView(val slot: SlotView, val gain: Double, val reasons: List<Stri
 data class TeamView(val keys: List<String>, val added: List<SlotView>, val total: Double)
 
 /** Quantos membros do time sao fracos / resistentes a um tipo de ataque. */
-data class TypeBalanceView(val type: String, val weak: Int, val resist: Int)
+data class TypeBalanceView(
+    val type: String,
+    val weak: Int,
+    val resist: Int,
+    /** Multiplicador de dano que cada membro recebe deste tipo, na ordem do time (ja com a habilidade). */
+    val multipliers: List<Double> = emptyList(),
+)
 
 data class SwapView(val outKey: String, val outName: String, val pick: SlotView, val gain: Double, val reasons: List<String>)
 
