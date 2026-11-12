@@ -103,6 +103,12 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
     /** Tooltips da tabela de tipos; entram por ultimo para ficar por cima dos cards. */
     private val typeTips = ArrayList<Hit>()
 
+    /** Listas com rolagem desenhadas neste frame: chave, area e quanto da para rolar. */
+    private class ScrollArea(val key: String, val x: Int, val y: Int, val w: Int, val h: Int, val max: Int)
+    private val scrollAreas = ArrayList<ScrollArea>()
+    private val scrolls = HashMap<String, Float>()
+    private val scrollShown = HashMap<String, Float>()
+
     private val keys: List<String> get() = state?.team?.map { it.key } ?: emptyList()
 
     // ------------------------------------------------------------------ dados
@@ -119,6 +125,11 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         if (newState.raid == null) raidQuery = null
         if (newState.trainer == null) trainerId = null
         if (newState.error == null && arrived.isNotEmpty()) clearInput()
+        // Um time diferente traz outras sugestoes: as listas voltam ao topo.
+        if (newState.team.map { it.key } != state?.team?.map { it.key }) {
+            scrolls.clear()
+            scrollShown.clear()
+        }
         state = newState
         waiting = false
         contentAt = now
@@ -350,6 +361,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         lastFrame = time
         hits.clear()
         typeTips.clear()
+        scrollAreas.clear()
 
         val ui = Ui(graphics, font, mouseX, mouseY, partialTick, hits)
         ui.rect(0, 0, width, height, Palette.DIM)
@@ -696,12 +708,20 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
 
     private fun teamColumn(ui: Ui, column: String, x: Int, top: Int, w: Int, teams: List<TeamView>) {
         if (teams.isEmpty()) return empty(ui, x, top, t("empty.cannot_complete"))
-        // Os cartoes encolhem para caber todos os times na altura disponivel.
+        // Os cartoes encolhem um pouco para caber; se ainda faltar altura, a coluna rola.
         val gap = 3
-        val h = ((bodyBottom - top + gap) / teams.size - gap).coerceIn(30, 46)
+        val viewH = bodyBottom - top
+        val h = ((viewH + gap) / teams.size - gap).coerceIn(38, 46)
+        val contentH = teams.size * (h + gap) - gap
+        val offset = scrolled(ui, "teams:$column", x, top, w, viewH, contentH)
+        if (offset != null) {
+            ui.g.enableScissor(x - 2, top, x + w + 2, top + viewH)
+            ui.clip = intArrayOf(x - 2, top, x + w + 2, top + viewH)
+        }
+        val shift = offset ?: 0
         for ((i, tm) in teams.withIndex()) {
-            val y = top + i * (h + gap)
-            if (y + h > bodyBottom + 2) break
+            val y = top + i * (h + gap) - shift
+            if (y + h <= top || y >= top + viewH) continue
             val tip = Component.literal(t("teams.option", i + 1)).append(Component.literal("  " + t("label.score_lower") + " %.1f".format(tm.total)).withStyle(ChatFormatting.GREEN))
             for (m in tm.added) tip.append("\n").append(Component.literal("+ ${m.name}").withStyle(if (m.owned) ChatFormatting.GREEN else ChatFormatting.AQUA))
             tip.append("\n\n").append(Component.literal(t("tip.click_use_team")).withStyle(ChatFormatting.DARK_GRAY))
@@ -718,6 +738,40 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
                 PokemonModels.draw(ui.g, "team:$column:$i:${m.key}", m.species, m.aspects, ax + 5 + j * (box + 2), y + 14, box, zoom = 1f + 0.14f * wave)
             }
         }
+        if (offset != null) {
+            ui.clip = null
+            ui.g.disableScissor()
+            scrollBar(ui, "teams:$column", x + w + 1, top, viewH, contentH, shift)
+        }
+    }
+
+    /**
+     * Registra uma lista com rolagem e devolve quanto ela esta rolada (em pixels, suavizado),
+     * ou null quando tudo cabe e nao precisa rolar.
+     */
+    private fun scrolled(ui: Ui, key: String, x: Int, y: Int, w: Int, viewH: Int, contentH: Int): Int? {
+        val max = contentH - viewH
+        if (max <= 0) {
+            scrolls.remove(key)
+            scrollShown.remove(key)
+            return null
+        }
+        scrollAreas += ScrollArea(key, x, y, w, viewH, max)
+        val target = (scrolls[key] ?: 0f).coerceIn(0f, max.toFloat())
+        scrolls[key] = target
+        val shown = scrollShown[key] ?: target
+        val next = shown + (target - shown) * 0.35f
+        scrollShown[key] = if (kotlin.math.abs(target - next) < 0.5f) target else next
+        return scrollShown.getValue(key).toInt()
+    }
+
+    /** Barra fina ao lado da lista, com a alca proporcional ao que esta visivel. */
+    private fun scrollBar(ui: Ui, key: String, x: Int, y: Int, viewH: Int, contentH: Int, offset: Int) {
+        val hover = smooth("scroll:$key", if (ui.over(x - 6, y, 9, viewH)) 1f else 0f)
+        ui.rect(x, y, 2, viewH, Palette.alpha(Palette.EDGE, 0.6f))
+        val handle = max(12, viewH * viewH / contentH)
+        val hy = y + ((viewH - handle) * offset.toFloat() / (contentH - viewH)).toInt()
+        ui.rect(x, hy, 2, handle, Palette.mix(Palette.MUTED, Palette.GOLD, hover))
     }
 
     // ---------------------------------------------------------------- analise
@@ -1715,6 +1769,17 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
     }
 
     // ---------------------------------------------------------------- entrada
+
+    override fun mouseScrolled(mouseX: Double, mouseY: Double, scrollX: Double, scrollY: Double): Boolean {
+        val area = scrollAreas.lastOrNull {
+            mouseX >= it.x - 2 && mouseX < it.x + it.w + 4 && mouseY >= it.y && mouseY < it.y + it.h
+        }
+        if (area != null && scrollY != 0.0) {
+            scrolls[area.key] = ((scrolls[area.key] ?: 0f) - scrollY.toFloat() * 24f).coerceIn(0f, area.max.toFloat())
+            return true
+        }
+        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY)
+    }
 
     override fun mouseClicked(mouseX: Double, mouseY: Double, button: Int): Boolean {
         if (super.mouseClicked(mouseX, mouseY, button)) return true

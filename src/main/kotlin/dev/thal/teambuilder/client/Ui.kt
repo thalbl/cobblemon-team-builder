@@ -73,7 +73,17 @@ class Ui(
     val partialTick: Float,
     private val hits: MutableList<Hit>,
 ) {
-    fun over(x: Int, y: Int, w: Int, h: Int) = mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h
+    /**
+     * Area visivel de uma lista com rolagem (x0, y0, x1, y1). Enquanto estiver definida, hover e
+     * cliques so valem dentro dela, para o que rolou para fora nao responder.
+     */
+    var clip: IntArray? = null
+
+    fun over(x: Int, y: Int, w: Int, h: Int): Boolean {
+        val c = clip
+        if (c != null && (mouseX < c[0] || mouseX >= c[2] || mouseY < c[1] || mouseY >= c[3])) return false
+        return mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h
+    }
 
     fun rect(x: Int, y: Int, w: Int, h: Int, color: Int) {
         if ((color ushr 24) != 0 && w > 0 && h > 0) g.fill(x, y, x + w, y + h, color)
@@ -206,7 +216,17 @@ class Ui(
 
     /** Registra uma area clicavel/com tooltip e diz se o mouse esta sobre ela. */
     fun hit(x: Int, y: Int, w: Int, h: Int, tooltip: Component? = null, onClick: (() -> Unit)? = null): Boolean {
-        hits += Hit(x, y, w, h, tooltip, onClick)
+        val c = clip
+        if (c == null) {
+            hits += Hit(x, y, w, h, tooltip, onClick)
+        } else {
+            val x0 = maxOf(x, c[0])
+            val y0 = maxOf(y, c[1])
+            val x1 = minOf(x + w, c[2])
+            val y1 = minOf(y + h, c[3])
+            if (x1 <= x0 || y1 <= y0) return false
+            hits += Hit(x0, y0, x1 - x0, y1 - y0, tooltip, onClick)
+        }
         return over(x, y, w, h)
     }
 
