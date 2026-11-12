@@ -42,6 +42,14 @@ class Catalog private constructor(
     val megasBySpecies: Map<String, List<Profile>> =
         all.values.filter { it.isMega }.groupBy { it.speciesId }
 
+    /**
+     * Forma normal de cada especie. O id da forma padrao nem sempre e o da especie
+     * (o Cobblemon gera "charizardnormal"), entao a mega acha a base por aqui.
+     */
+    val baseBySpecies: Map<String, Profile> = LinkedHashMap<String, Profile>().also { map ->
+        for (p in all.values) if (!p.isMega) map.putIfAbsent(p.speciesId, p)
+    }
+
     val resolver = NameResolver(all.keys)
 
     val threats = dev.thal.teambuilder.core.ThreatAnalyzer(moves)

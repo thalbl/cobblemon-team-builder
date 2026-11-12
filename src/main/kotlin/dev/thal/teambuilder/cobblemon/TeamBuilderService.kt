@@ -237,7 +237,7 @@ object TeamBuilderService {
             if (full || !normal) emptyList()
             else engine.suggestNext(team, pool, 5).map { PickView(slot(it.pick, s), it.gain, it.reasons) }
 
-        val chosen = team.map { chosenByKey[key(it)] ?: chosenByKey[baseKey(it)] }
+        val chosen = team.map { chosenByKey[key(it)] ?: chosenByKey[baseKey(it, s)] }
         return BuilderState(
             team = team.map { slot(it, s, withForms = true) },
             sets = teamSets(s, team, chosen, inventory(player)),
@@ -509,8 +509,9 @@ object TeamBuilderService {
     }
 
     /** Chave da forma normal: a funcao escolhida acompanha o Pokemon quando ele vira mega. */
-    private fun baseKey(p: Profile): String {
-        val mine = p.candidate.owned ?: return if (p.isMega) p.speciesId else p.id
+    private fun baseKey(p: Profile, s: Session): String {
+        val mine = p.candidate.owned
+            ?: return if (p.isMega) s.catalog.baseBySpecies[p.speciesId]?.id ?: p.speciesId else p.id
         return UUID_PREFIX + mine.uuid
     }
 
@@ -535,7 +536,7 @@ object TeamBuilderService {
         val megas = s.catalog.megasBySpecies[p.speciesId].orEmpty()
         if (megas.isEmpty()) return emptyList()
         val mine = p.candidate.owned
-        val baseKey = if (mine != null) UUID_PREFIX + mine.uuid else (if (p.isMega) s.catalog.all[p.speciesId]?.id else p.id) ?: return emptyList()
+        val baseKey = if (mine != null) UUID_PREFIX + mine.uuid else (if (p.isMega) s.catalog.baseBySpecies[p.speciesId]?.id else p.id) ?: return emptyList()
         val out = ArrayList<FormView>()
         out += FormView(baseKey, s.lang.t("form.base"), false)
         for (mega in megas.sortedBy { it.id }) {
