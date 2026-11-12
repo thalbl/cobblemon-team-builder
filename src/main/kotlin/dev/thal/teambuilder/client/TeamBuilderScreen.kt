@@ -696,9 +696,12 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
 
     private fun teamColumn(ui: Ui, column: String, x: Int, top: Int, w: Int, teams: List<TeamView>) {
         if (teams.isEmpty()) return empty(ui, x, top, t("empty.cannot_complete"))
-        val h = 46
+        // Os cartoes encolhem para caber todos os times na altura disponivel.
+        val gap = 3
+        val h = ((bodyBottom - top + gap) / teams.size - gap).coerceIn(30, 46)
         for ((i, tm) in teams.withIndex()) {
-            val y = top + i * (h + 3)
+            val y = top + i * (h + gap)
+            if (y + h > bodyBottom + 2) break
             val tip = Component.literal(t("teams.option", i + 1)).append(Component.literal("  " + t("label.score_lower") + " %.1f".format(tm.total)).withStyle(ChatFormatting.GREEN))
             for (m in tm.added) tip.append("\n").append(Component.literal("+ ${m.name}").withStyle(if (m.owned) ChatFormatting.GREEN else ChatFormatting.AQUA))
             tip.append("\n\n").append(Component.literal(t("tip.click_use_team")).withStyle(ChatFormatting.DARK_GRAY))
@@ -708,11 +711,11 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             ui.text(t("teams.option", i + 1), ax + 5, y + 4, Palette.alpha(Palette.TEXT, a))
             ui.textRight(t("label.score_lower") + " %.1f".format(tm.total), ax + w - 5, y + 4, Palette.alpha(Palette.GOOD, a))
             if (a < 0.6f || tm.added.isEmpty()) continue
-            val box = min(26, (w - 10) / tm.added.size - 2)
+            val box = min(min(26, h - 18), (w - 10) / tm.added.size - 2)
             for ((j, m) in tm.added.withIndex()) {
                 // Ao passar o mouse os membros "acenam" em sequencia.
                 val wave = hover * (0.5f + 0.5f * sin(now() / 160.0 - j * 0.9).toFloat())
-                PokemonModels.draw(ui.g, "team:$column:$i:${m.key}", m.species, m.aspects, ax + 5 + j * (box + 2), y + 15, box, zoom = 1f + 0.14f * wave)
+                PokemonModels.draw(ui.g, "team:$column:$i:${m.key}", m.species, m.aspects, ax + 5 + j * (box + 2), y + 14, box, zoom = 1f + 0.14f * wave)
             }
         }
     }

@@ -49,6 +49,9 @@ import java.util.concurrent.ConcurrentHashMap
 object TeamBuilderService {
     const val TEAM_SIZE = 6
     private const val UUID_PREFIX = "uuid:"
+
+    /** Quantos times completos a aba Times sugere em cada coluna. */
+    const val SUGGESTED_TEAMS = 5
     private val SEARCH_LIMIT get() = Config.current.searchResults.coerceIn(2, 20)
     private val VITAMINS = listOf("hpup", "protein", "iron", "calcium", "zinc", "carbos")
 
@@ -226,7 +229,7 @@ object TeamBuilderService {
 
         fun teams(pool: Collection<Profile>) =
             if (full || !normal) emptyList()
-            else engine.complete(team, pool, 3).filter { it.added.isNotEmpty() }.map { t ->
+            else engine.complete(team, pool, SUGGESTED_TEAMS, width = 32).filter { it.added.isNotEmpty() }.map { t ->
                 TeamView(t.members.map(::key), t.added.map { slot(it, s) }, t.breakdown.total)
             }
 

@@ -321,7 +321,7 @@ object TeamBuilderCommand {
         ctx.reply("§6" + l.t("cmd.teams_from") + "§r ${s.team.joinToString(" + ") { it.name }}")
         for ((title, pool) in listOf(l.t("column.pc") to s.owned, l.t("column.all") to s.catalog.all.values)) {
             ctx.reply("§e$title:")
-            val teams = engine.complete(s.team, pool, 3)
+            val teams = engine.complete(s.team, pool, TeamBuilderService.SUGGESTED_TEAMS, width = 32)
             for ((i, t) in teams.withIndex()) ctx.reply("  §f${i + 1}. ${describe(t, l)}")
         }
         return 1
