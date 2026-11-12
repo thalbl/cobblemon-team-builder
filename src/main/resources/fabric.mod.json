@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "cobblemon_team_builder",
+  "version": "${version}",
+  "name": "Cobblemon Team Builder",
+  "description": "Analisa os Pokémon do seu PC e sugere times, funções, golpes e trocas para singles (1v1) e duplas (2v2).",
+  "authors": ["Thal"],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      {
+        "adapter": "kotlin",
+        "value": "dev.thal.teambuilder.TeamBuilderMod"
+      }
+    ],
+    "client": [
+      {
+        "adapter": "kotlin",
+        "value": "dev.thal.teambuilder.client.TeamBuilderClient"
+      }
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.17.2",
+    "fabric-api": "*",
+    "fabric-language-kotlin": "*",
+    "minecraft": "1.21.1",
+    "java": ">=21",
+    "cobblemon": ">=1.7.0"
+  }
+}
