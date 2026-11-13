@@ -248,6 +248,12 @@ object PokemonModels {
     var occluder: IntArray? = null
 
     /**
+     * Com o tutorial ou as conquistas abertos, so os modelos dentro desta area (x0, y0, x1, y1)
+     * sao desenhados: o resto da tela fica escurecido e um modelo 3D apareceria por cima.
+     */
+    var spotlight: IntArray? = null
+
+    /**
      * @param key identifica esta instancia na tela, para a animacao continuar entre frames
      * @param partialTick 0 deixa o modelo parado; o delta do frame faz ele animar
      * @param onTop desenha mesmo dentro de [occluder] (para o proprio painel flutuante)
@@ -260,6 +266,8 @@ object PokemonModels {
         if (speciesId.isEmpty() || speciesId in broken) return false
         val o = occluder
         if (!onTop && o != null && x - 3 < o[2] && x + size + 3 > o[0] && y - 3 < o[3] && y + size + 3 > o[1]) return false
+        val sp = spotlight
+        if (sp != null && (x < sp[0] || x + size > sp[2] || y < sp[1] || y + size > sp[3])) return false
         val resolved = species.getOrPut(speciesId) {
             runCatching { PokemonSpecies.getByIdentifier(ResourceLocation.parse(speciesId)) }.getOrNull()
         } ?: return false

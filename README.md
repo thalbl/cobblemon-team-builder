@@ -23,6 +23,8 @@ No jogo, aperte **H** para abrir.
 - [Por que usar](#por-que-usar)
 - [Instalação](#instalação)
 - [Tour pela tela](#tour-pela-tela)
+  - [Tutorial](#tutorial)
+  - [Conquistas](#conquistas)
 - [Recursos em detalhe](#recursos-em-detalhe)
 - [Comandos](#comandos)
 - [Configuração](#configuração)
@@ -98,6 +100,18 @@ A tela tem quatro partes, de cima para baixo e da esquerda para a direita:
 - **Painel da direita:** o set do slot selecionado, ou o checklist do que falta.
 
 Passe o mouse em quase tudo: os tooltips trazem os detalhes, com os tipos coloridos. Em cima dos **ícones de tipo** de qualquer Pokémon aparece a tabela de defesa dele: o que leva 4x, 2x, o que resiste (½x, ¼x) e onde é imune, já considerando habilidades como Levitate ou Flash Fire.
+
+### Tutorial
+
+Na primeira vez que a tela abre, um tour passo a passo destaca uma parte da tela por vez (slots, nota, botões, abas, busca e painel do set), com um balão curto explicando cada uma. Na primeira visita a cada aba aparece uma dica de 1 ou 2 passos só daquela aba. Enter ou as setas avançam e Esc pula. O botão **?** no canto (ou **F1**) reabre o tour quando quiser. O que já foi visto fica salvo em `config/cobblemon_team_builder/client.json`.
+
+### Conquistas
+
+São 20 conquistas que ensinam o mod aos poucos, do primeiro Pokémon até vencer a Elite 4. O botão **★ n/20** no canto mostra a lista em três grupos (Montagem, Preparação e Batalhas), com o próximo passo de cada ramo destacado. Elas também aparecem como **Progressos** do Minecraft (tecla L), com notificação, e ficam salvas no mundo.
+
+As de batalha conferem se você seguiu a recomendação. O mod lembra quem recomendou contra cada chefe de raid e cada treinador (em `world/data/cobblemon_team_builder_memory.json`):
+- **raid:** vencer levando pelo menos um Pokémon recomendado contra aquele chefe. Precisa do Cobblemon Raid Dens.
+- **treinador, ginásio, Elite 4 e campeão:** vencer com 3 ou mais dos Pokémon recomendados contra aquele treinador. Precisa do Radical Cobblemon Trainers.
 
 ---
 

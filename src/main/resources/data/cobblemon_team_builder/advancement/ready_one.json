@@ -1,0 +1,23 @@
+{
+  "parent": "cobblemon_team_builder:checklist",
+  "display": {
+    "icon": {
+      "id": "cobblemon:timid_mint"
+    },
+    "title": {
+      "translate": "advancement.cobblemon_team_builder.ready_one.title"
+    },
+    "description": {
+      "translate": "advancement.cobblemon_team_builder.ready_one.desc"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

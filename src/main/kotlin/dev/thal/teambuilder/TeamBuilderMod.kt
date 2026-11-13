@@ -1,5 +1,6 @@
 package dev.thal.teambuilder
 
+import dev.thal.teambuilder.cobblemon.Achievements
 import dev.thal.teambuilder.cobblemon.Catalog
 import dev.thal.teambuilder.cobblemon.Trainers
 import dev.thal.teambuilder.command.TeamBuilderCommand
@@ -35,11 +36,13 @@ object TeamBuilderMod : ModInitializer {
         Config.load()
         reloadMeta()
         Network.registerCommon()
+        Achievements.register()
 
         // Especies, golpes e treinadores vem de datapacks: refaz tudo a cada (re)carga.
         ServerLifecycleEvents.SERVER_STARTED.register { server ->
             Catalog.invalidate()
             Trainers.load(server.resourceManager)
+            Achievements.load(server)
         }
         ServerLifecycleEvents.END_DATA_PACK_RELOAD.register { server, _, _ ->
             Catalog.invalidate()

@@ -1,0 +1,23 @@
+{
+  "parent": "cobblemon_team_builder:ready_one",
+  "display": {
+    "icon": {
+      "id": "cobblemon:ability_capsule"
+    },
+    "title": {
+      "translate": "advancement.cobblemon_team_builder.ready_team.title"
+    },
+    "description": {
+      "translate": "advancement.cobblemon_team_builder.ready_team.desc"
+    },
+    "frame": "challenge",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

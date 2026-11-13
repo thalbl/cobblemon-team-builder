@@ -1,0 +1,23 @@
+{
+  "parent": "cobblemon_team_builder:raid_tab",
+  "display": {
+    "icon": {
+      "id": "minecraft:end_crystal"
+    },
+    "title": {
+      "translate": "advancement.cobblemon_team_builder.raid_win.title"
+    },
+    "description": {
+      "translate": "advancement.cobblemon_team_builder.raid_win.desc"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

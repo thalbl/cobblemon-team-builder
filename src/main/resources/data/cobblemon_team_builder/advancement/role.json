@@ -1,0 +1,23 @@
+{
+  "parent": "cobblemon_team_builder:first_pick",
+  "display": {
+    "icon": {
+      "id": "minecraft:name_tag"
+    },
+    "title": {
+      "translate": "advancement.cobblemon_team_builder.role.title"
+    },
+    "description": {
+      "translate": "advancement.cobblemon_team_builder.role.desc"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": false,
+    "hidden": false
+  },
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

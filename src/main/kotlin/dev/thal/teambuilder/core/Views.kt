@@ -233,6 +233,8 @@ data class BuilderState(
     val error: String? = null,
     /** Mensagem de sucesso (ex.: time aplicado ao party). */
     val notice: String? = null,
+    /** Ids das conquistas que o jogador ja tem (ver [AchievementList]). */
+    val achievements: List<String> = emptyList(),
 )
 
 /** Busca por nome enquanto o jogador digita. */

@@ -1,0 +1,23 @@
+{
+  "parent": "cobblemon_team_builder:root",
+  "display": {
+    "icon": {
+      "id": "minecraft:spyglass"
+    },
+    "title": {
+      "translate": "advancement.cobblemon_team_builder.analysis.title"
+    },
+    "description": {
+      "translate": "advancement.cobblemon_team_builder.analysis.desc"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": false,
+    "hidden": false
+  },
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

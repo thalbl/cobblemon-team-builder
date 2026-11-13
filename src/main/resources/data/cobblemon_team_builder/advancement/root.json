@@ -1,0 +1,23 @@
+{
+  "display": {
+    "icon": {
+      "id": "cobblemon:poke_ball"
+    },
+    "title": {
+      "translate": "advancement.cobblemon_team_builder.root.title"
+    },
+    "description": {
+      "translate": "advancement.cobblemon_team_builder.root.desc"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": false,
+    "hidden": false,
+    "background": "minecraft:textures/block/light_blue_concrete.png"
+  },
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

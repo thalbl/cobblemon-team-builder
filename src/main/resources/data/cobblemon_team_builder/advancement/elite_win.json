@@ -1,0 +1,23 @@
+{
+  "parent": "cobblemon_team_builder:gym_win",
+  "display": {
+    "icon": {
+      "id": "cobblemon:master_ball"
+    },
+    "title": {
+      "translate": "advancement.cobblemon_team_builder.elite_win.title"
+    },
+    "description": {
+      "translate": "advancement.cobblemon_team_builder.elite_win.desc"
+    },
+    "frame": "challenge",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

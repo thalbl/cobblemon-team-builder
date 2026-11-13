@@ -2,6 +2,7 @@ package dev.thal.teambuilder.net
 
 import com.google.gson.Gson
 import dev.thal.teambuilder.TeamBuilderMod
+import dev.thal.teambuilder.cobblemon.Achievements
 import dev.thal.teambuilder.cobblemon.TeamBuilderService
 import dev.thal.teambuilder.core.BuilderRequest
 import dev.thal.teambuilder.core.BuilderState
@@ -76,6 +77,21 @@ class SearchResultPayload(val json: String) : CustomPacketPayload {
     }
 }
 
+/** Cliente -> servidor: algo que so a tela sabe (aba aberta, time salvo...), para as conquistas. */
+class TrackPayload(val event: String) : CustomPacketPayload {
+    override fun type() = TYPE
+
+    companion object {
+        val TYPE = CustomPacketPayload.Type<TrackPayload>(
+            ResourceLocation.fromNamespaceAndPath(TeamBuilderMod.MOD_ID, "track")
+        )
+        val CODEC: StreamCodec<RegistryFriendlyByteBuf, TrackPayload> = StreamCodec.of(
+            { buf, p -> buf.writeUtf(p.event, 64) },
+            { buf -> TrackPayload(buf.readUtf(64)) },
+        )
+    }
+}
+
 object Network {
     val GSON = Gson()
 
@@ -85,6 +101,15 @@ object Network {
         PayloadTypeRegistry.playS2C().register(StatePayload.TYPE, StatePayload.CODEC)
         PayloadTypeRegistry.playC2S().register(SearchPayload.TYPE, SearchPayload.CODEC)
         PayloadTypeRegistry.playS2C().register(SearchResultPayload.TYPE, SearchResultPayload.CODEC)
+        PayloadTypeRegistry.playC2S().register(TrackPayload.TYPE, TrackPayload.CODEC)
+
+        ServerPlayNetworking.registerGlobalReceiver(TrackPayload.TYPE) { payload, context ->
+            try {
+                Achievements.fromClient(context.player(), payload.event)
+            } catch (e: Exception) {
+                TeamBuilderMod.LOGGER.debug("Conquista {} falhou", payload.event, e)
+            }
+        }
 
         ServerPlayNetworking.registerGlobalReceiver(SearchPayload.TYPE) { payload, context ->
             val player = context.player()
@@ -112,7 +137,14 @@ object Network {
                     trainer = request.trainer?.take(100),
                     roles = request.roles.orEmpty().take(TeamBuilderService.TEAM_SIZE).map { it?.take(16) },
                 )
-                TeamBuilderService.state(player, safe)
+                val computed = TeamBuilderService.state(player, safe)
+                try {
+                    Achievements.afterState(player, safe, computed)
+                    computed.copy(achievements = Achievements.done(player))
+                } catch (e: Exception) {
+                    TeamBuilderMod.LOGGER.warn("Conquistas falharam para {}", player.gameProfile.name, e)
+                    computed
+                }
             } catch (e: Exception) {
                 TeamBuilderMod.LOGGER.error("Falha ao montar sugestoes para {}", player.gameProfile.name, e)
                 BuilderState(error = TeamBuilderService.lang(player).t("error.server"))

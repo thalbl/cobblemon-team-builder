@@ -18,6 +18,8 @@ import dev.thal.teambuilder.core.TeamView
 import dev.thal.teambuilder.net.Network
 import dev.thal.teambuilder.net.RequestPayload
 import dev.thal.teambuilder.net.SearchPayload
+import dev.thal.teambuilder.net.TrackPayload
+import dev.thal.teambuilder.core.AchievementList
 import dev.thal.teambuilder.text.SetText
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking
 import net.minecraft.ChatFormatting
@@ -111,6 +113,20 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
 
     private val keys: List<String> get() = state?.team?.map { it.key } ?: emptyList()
 
+    // Tutorial e conquistas
+    /** Areas da tela que o tutorial pode destacar, como x, y, w, h; refeitas a cada frame. */
+    private val anchors = HashMap<String, IntArray>()
+    private var tour: List<TutorialStep> = emptyList()
+    private var tourStep = 0
+    private var tourAt = 0L
+    /** Abas cuja dica faz parte do tour atual; "main" quando inclui o tour geral. */
+    private var tourParts: List<String> = emptyList()
+    private var showAchievements = false
+    private var achievementsAt = 0L
+    /** Conquistas pedidas por esta tela que o servidor ainda nao confirmou. */
+    private val trackedLocally = HashSet<String>()
+    private val overlayHits = ArrayList<Hit>()
+
     // ------------------------------------------------------------------ dados
 
     fun accept(newState: BuilderState) {
@@ -168,6 +184,16 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         return slot?.forms?.firstOrNull { !it.mega }?.key ?: key
     }
 
+    /** Conquistas ja ganhas, contando as que esta tela acabou de pedir. */
+    private fun achieved(): Set<String> = (state?.achievements.orEmpty() + trackedLocally).toSet()
+
+    /** Avisa o servidor de algo que so a tela sabe (para as conquistas). */
+    private fun track(event: String) {
+        if (event in achieved() || !ClientPlayNetworking.canSend(TrackPayload.TYPE)) return
+        trackedLocally += event
+        ClientPlayNetworking.send(TrackPayload(event))
+    }
+
     private fun typed(): String = input?.value?.trim().orEmpty()
 
     private fun clearInput() {
@@ -185,6 +211,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         val leaving = tab == Tab.RAID || (tab == Tab.TRAINERS && trainerId != null)
         tab = next
         contentAt = Util.getMillis()
+        if (next == Tab.ANALYSIS) track("analysis")
         // A busca muda de sentido (Pokemon x treinadores): refaz para o texto atual.
         sendSearch(typed())
         when {
@@ -272,6 +299,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         clearInput()
         localError = null
         localNotice = t("saved.done", name)
+        track("saved")
     }
 
     private fun loadSaved(team: SavedTeam) {
@@ -375,6 +403,14 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
 
         // A lista da busca fica por cima de tudo: os modelos que estariam embaixo dela nao sao desenhados.
         PokemonModels.occluder = dropdownRect()
+        maybeStartTour(s)
+        // Com o tutorial aberto so a area destacada mostra modelos (a do frame anterior basta).
+        PokemonModels.spotlight = when {
+            tour.isNotEmpty() -> tourTarget()?.let { intArrayOf(it[0], it[1], it[0] + it[2], it[1] + it[3]) } ?: intArrayOf(0, 0, 0, 0)
+            showAchievements -> intArrayOf(0, 0, 0, 0)
+            else -> null
+        }
+        anchors.clear()
         header(ui, s)
         slots(ui, s)
         tabs(ui, s)
@@ -392,9 +428,220 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         input?.render(graphics, mouseX, mouseY, partialTick)
 
         hits += typeTips
-        hits.lastOrNull { it.tooltip != null && it.contains(mouseX.toDouble(), mouseY.toDouble()) }?.tooltip?.let {
-            graphics.renderTooltip(font, font.split(it, 220), mouseX, mouseY)
+        overlayHits.clear()
+        when {
+            tour.isNotEmpty() -> tourOverlay(ui)
+            showAchievements -> achievementsOverlay(ui)
+            else -> hits.lastOrNull { it.tooltip != null && it.contains(mouseX.toDouble(), mouseY.toDouble()) }?.tooltip?.let {
+                graphics.renderTooltip(font, font.split(it, 220), mouseX, mouseY)
+            }
         }
+    }
+
+    // ---------------------------------------------------------------- tutorial
+
+    private fun anchor(name: String, x: Int, y: Int, w: Int, h: Int) {
+        anchors[name] = intArrayOf(x, y, w, h)
+    }
+
+    /** Abre o tour sozinho: o geral na primeira vez, e a dica de cada aba na primeira visita. */
+    private fun maybeStartTour(s: BuilderState) {
+        if (tour.isNotEmpty() || showAchievements || waiting) return
+        if (!ClientPrefs.tutorialDone) {
+            startTour(full = true)
+            return
+        }
+        // A analise de um time vazio nao tem o que mostrar: a dica espera o primeiro Pokemon.
+        if (tab == Tab.ANALYSIS && s.team.isEmpty()) return
+        if (!ClientPrefs.tabSeen(tab.name)) startTour(full = false)
+    }
+
+    /** [full] = tour geral + dica da aba atual (botao ?); senao so a dica da aba. */
+    private fun startTour(full: Boolean) {
+        val tabSteps = TutorialSteps.forTab(tab.name)
+        tour = if (full) TutorialSteps.main + tabSteps else tabSteps
+        tourParts = if (full) listOf("main", tab.name) else listOf(tab.name)
+        tourStep = 0
+        tourAt = now()
+        showAchievements = false
+        clearInput()
+        input?.isFocused = false
+        if (tour.isEmpty()) endTour(completed = true)
+    }
+
+    private fun endTour(completed: Boolean) {
+        for (part in tourParts) {
+            if (part == "main") ClientPrefs.tutorialDone = true else ClientPrefs.markTab(part)
+        }
+        if (completed && "main" in tourParts) track("tutorial")
+        tour = emptyList()
+        tourParts = emptyList()
+    }
+
+    private fun tourMove(delta: Int) {
+        val next = tourStep + delta
+        when {
+            next < 0 -> return
+            next >= tour.size -> endTour(completed = true)
+            else -> {
+                tourStep = next
+                tourAt = now()
+            }
+        }
+    }
+
+    private fun tourTarget(): IntArray? = tour.getOrNull(tourStep)?.anchor?.let { anchors[it] }
+
+    /** Escurece tudo menos a area do passo e mostra o balao com o texto e os botoes. */
+    private fun tourOverlay(ui: Ui) {
+        val step = tour.getOrNull(tourStep) ?: return
+        val pose = ui.g.pose()
+        pose.pushPose()
+        pose.translate(0f, 0f, 500f)
+        val k = easeOut((now() - tourAt) / 220f)
+        val shade = Palette.alpha(0xFF05070A.toInt(), 0.72f)
+        val target = tourTarget()
+        if (target == null) {
+            ui.rect(0, 0, width, height, shade)
+        } else {
+            val (tx, ty, tw, th) = target
+            ui.rect(0, 0, width, ty - 2, shade)
+            ui.rect(0, ty + th + 2, width, height - ty - th - 2, shade)
+            ui.rect(0, ty - 2, tx - 2, th + 4, shade)
+            ui.rect(tx + tw + 2, ty - 2, width - tx - tw - 2, th + 4, shade)
+            ui.frame(tx - 2, ty - 2, tw + 4, th + 4, Palette.mix(Palette.GOLD, Palette.TEXT, pulse(900f) * 0.5f))
+        }
+
+        // Balao: abaixo da area se couber, senao acima, senao no centro.
+        val bw = min(240, width - 24)
+        val title = t("tutorial.${step.key}.title")
+        val lines = font.split(Component.literal(t("tutorial.${step.key}.text")), bw - 14)
+        val bh = 24 + lines.size * 10 + 18
+        val bx: Int
+        val by: Int
+        if (target == null) {
+            bx = (width - bw) / 2
+            by = (height - bh) / 2
+        } else {
+            bx = (target[0] + target[2] / 2 - bw / 2).coerceIn(8, width - bw - 8)
+            by = when {
+                target[1] + target[3] + 8 + bh <= height - 4 -> target[1] + target[3] + 8
+                target[1] - 8 - bh >= 4 -> target[1] - 8 - bh
+                else -> (height - bh) / 2
+            }
+        }
+        val slide = ((1f - k) * 6f).toInt()
+        ui.panel(bx, by + slide, bw, bh, Palette.alpha(Palette.PANEL, 0.98f), Palette.GOLD)
+        ui.text(title, bx + 7, by + slide + 7, Palette.GOLD)
+        ui.textRight("${tourStep + 1}/${tour.size}", bx + bw - 7, by + slide + 7, Palette.FAINT, 0.75f)
+        for ((i, line) in lines.withIndex()) {
+            ui.g.drawString(font, line, bx + 7, by + slide + 21 + i * 10, Palette.TEXT, false)
+        }
+
+        // Botoes: Pular | Voltar  Proximo/Concluir.
+        val buttonsY = by + slide + bh - 16
+        val last = tourStep == tour.size - 1
+        val nextLabel = if (last) t("tutorial.finish") else t("tutorial.next")
+        val nextW = ui.width(nextLabel) + 10
+        overlayButton(ui, bx + bw - 7 - nextW, buttonsY, nextW, nextLabel, Palette.GOLD) { tourMove(1) }
+        if (tourStep > 0) {
+            val backLabel = t("tutorial.back")
+            val backW = ui.width(backLabel) + 10
+            overlayButton(ui, bx + bw - 7 - nextW - 4 - backW, buttonsY, backW, backLabel, Palette.MUTED) { tourMove(-1) }
+        }
+        if (!last) {
+            val skipLabel = t("tutorial.skip")
+            overlayButton(ui, bx + 7, buttonsY, ui.width(skipLabel) + 10, skipLabel, Palette.FAINT) { endTour(completed = false) }
+        }
+        pose.popPose()
+    }
+
+    private fun overlayButton(ui: Ui, x: Int, y: Int, w: Int, label: String, color: Int, onClick: () -> Unit) {
+        val hover = smooth("ovl:$label", if (ui.over(x, y, w, 12)) 1f else 0f)
+        ui.panel(x, y, w, 12, Palette.mix(Palette.CARD, Palette.CARD_HOVER, hover), Palette.mix(Palette.EDGE, color, 0.4f + 0.6f * hover))
+        ui.textCentered(label, x + w / 2, y + 2, color)
+        overlayHits += Hit(x, y, w, 12, null, onClick)
+    }
+
+    // -------------------------------------------------------------- conquistas
+
+    /** Lista das conquistas em tres grupos; o proximo passo de cada ramo fica destacado. */
+    private fun achievementsOverlay(ui: Ui) {
+        val pose = ui.g.pose()
+        pose.pushPose()
+        pose.translate(0f, 0f, 500f)
+        ui.rect(0, 0, width, height, Palette.alpha(0xFF05070A.toInt(), 0.72f))
+        val done = achieved()
+        val k = easeOut((now() - achievementsAt) / 220f)
+
+        val rowH = 11
+        val left = AchievementList.all.filter { it.group == AchievementList.GROUP_BUILD }
+        val right = AchievementList.all.filter { it.group != AchievementList.GROUP_BUILD }
+        val rows = max(left.size + 1, right.size + 2)
+        val pw = min(380, width - 16)
+        val ph = 34 + rows * rowH + 16
+        val px = (width - pw) / 2
+        val py = (height - ph) / 2 + ((1f - k) * 6f).toInt()
+        ui.panel(px, py, pw, ph, Palette.alpha(Palette.PANEL, 0.98f), Palette.GOLD)
+        // Bloqueia cliques no painel (fora dele, fecha).
+        overlayHits += Hit(px, py, pw, ph, null) {}
+        val count = done.count { it in AchievementList.ids }
+        ui.text(t("achievements.title"), px + 8, py + 7, Palette.GOLD)
+        ui.text("$count/${AchievementList.all.size}", px + 12 + ui.width(t("achievements.title")), py + 7, Palette.TEXT)
+        ui.textRight(t("achievements.hint"), px + pw - 22, py + 8, Palette.FAINT, 0.75f)
+        overlayButton(ui, px + pw - 18, py + 5, 12, "x", Palette.MUTED) { showAchievements = false }
+        // Barra de progresso.
+        val barW = pw - 16
+        ui.rect(px + 8, py + 19, barW, 2, Palette.PANEL_EDGE)
+        ui.rect(px + 8, py + 19, (barW * smooth("ach:bar", count / AchievementList.all.size.toFloat(), 6f)).toInt(), 2, Palette.GOLD)
+
+        val colW = (pw - 24) / 2
+        var tip: Component? = null
+        for ((col, list) in listOf(left, right).withIndex()) {
+            val cx = px + 8 + col * (colW + 8)
+            var cy = py + 27
+            var group = ""
+            for (a in list) {
+                if (a.group != group) {
+                    group = a.group
+                    if (cy > py + 27) cy += 4
+                    ui.text(t("achievements.group.$group").uppercase(), cx, cy + 1, Palette.MUTED, 0.75f)
+                    cy += rowH
+                }
+                val isDone = a.id in done
+                val open = !isDone && (a.parent == null || a.parent in done)
+                val (mark, color) = when {
+                    isDone -> "✔" to Palette.GOOD
+                    open -> "→" to Palette.GOLD
+                    else -> "·" to Palette.FAINT
+                }
+                val hover = ui.over(cx, cy, colW, rowH)
+                if (hover) ui.rect(cx - 2, cy - 1, colW + 4, rowH, Palette.CARD_HOVER)
+                ui.text(mark, cx, cy + 1, color)
+                val title = t(AchievementList.titleKey(a.id))
+                val textColor = when {
+                    isDone -> Palette.TEXT
+                    open -> Palette.mix(Palette.GOLD, Palette.TEXT, 0.35f)
+                    else -> Palette.FAINT
+                }
+                ui.text(ui.fit(title, colW - 12), cx + 10, cy + 1, textColor)
+                if (hover) {
+                    tip = Component.literal(title).withStyle(if (isDone) ChatFormatting.GREEN else ChatFormatting.GOLD)
+                        .append("\n").append(Component.literal(t(AchievementList.descKey(a.id))).withStyle(ChatFormatting.GRAY))
+                        .append("\n\n").append(
+                            Component.literal(t(if (isDone) "achievements.done" else if (open) "achievements.next" else "achievements.locked"))
+                                .withStyle(ChatFormatting.DARK_GRAY)
+                        )
+                }
+                cy += rowH
+            }
+        }
+        // Proximo objetivo sugerido, em uma linha no rodape.
+        val next = AchievementList.all.firstOrNull { it.id !in done && (it.parent == null || it.parent in done) }
+        val footer = if (next == null) t("achievements.all_done") else t("achievements.suggest", t(AchievementList.descKey(next.id)))
+        ui.text(ui.fit(footer, pw - 16, 0.75f), px + 8, py + ph - 11, Palette.CYAN, 0.75f)
+        pose.popPose()
+        tip?.let { ui.g.renderTooltip(font, font.split(it, 220), ui.mouseX, ui.mouseY) }
     }
 
     // ------------------------------------------------------------- cabecalho
@@ -412,6 +659,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             val value = "%.1f".format(shown)
             ui.text(value, x + ui.width(label) + 4, y + 4, Palette.TEXT)
             val w = ui.width(label) + 4 + ui.width(value)
+            anchor("score", x - 2, y + 2, w + 4, 12)
             ui.hit(
                 x, y, w, 16,
                 Component.literal(t("tip.score", "%.1f".format(s.total), "%.1f".format(s.strength), "%.1f".format(s.defense),
@@ -434,8 +682,20 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             x += cw + 10
         }
 
-        // Opcoes, da direita para a esquerda.
+        // Ajuda e conquistas, no canto direito.
         var right = width - pad - 3
+        val helpEnd = right
+        right = button(ui, right, y + 2, "?", t("tip.help"), Palette.GOLD) { startTour(full = true) }
+        val achieved = achieved().count { it in AchievementList.ids }
+        right = button(ui, right, y + 2, "★ $achieved/${AchievementList.all.size}", t("tip.achievements"), Palette.GOLD) {
+            showAchievements = true
+            achievementsAt = now()
+        }
+        anchor("help", right + 3, y + 2, helpEnd - right - 3, 12)
+
+        // Opcoes, da direita para a esquerda.
+        right -= 4
+        val optionsEnd = right
         right = toggle(ui, right, y + 2, "Megas", s.megas, t("tip.megas")) { request(megas = !s.megas) }
         right = toggle(ui, right, y + 2, t("option.legendaries_ui"), s.legendaries, t("tip.legendaries")) {
             request(legendaries = !s.legendaries)
@@ -453,6 +713,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         right = button(ui, right, y + 2, t("btn.apply"), t("tip.apply"), Palette.OWNED) {
             if (s.team.none { it.owned }) localError = t("apply.none_owned") else request(apply = true)
         }
+        anchor("buttons", right + 3, y + 2, optionsEnd - right - 3, 12)
 
         val room = right - x - 4
         val error = localError ?: s.error
@@ -498,6 +759,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         val gap = 3
         val w = (width - pad * 2 - gap * 5) / 6
         val nextEmpty = s.team.size
+        anchor("slots", pad, y, width - pad * 2, h)
         for (i in 0 until 6) {
             val x = pad + i * (w + gap)
             val slot = s.team.getOrNull(i)
@@ -597,6 +859,9 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             }
             x += w + 2
         }
+        anchor("tabs", pad, y, x - 2 - pad, 15)
+        anchor("search", inputX - 1, y, pad + leftWidth - inputX + 1, 14)
+        anchor("body", pad, y + 16, leftWidth, bodyBottom - y - 16)
         // O sublinhado desliza ate a aba ativa.
         val lineX = smooth("tabline:x", activeX.toFloat(), 18f).toInt()
         val lineW = smooth("tabline:w", activeW.toFloat(), 18f).toInt()
@@ -675,7 +940,10 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
                 Component.literal(p.slot.name).append(Component.literal("  +%.1f".format(p.gain)).withStyle(ChatFormatting.GREEN)),
                 p.slot.info, p.reasons, t("tip.click_add"),
             )
-            val (ax, a, hover) = card(ui, "$column:${p.slot.key}", i, x, y, w, h, accentOf(p.slot), tip) { request(keys = keys + p.slot.key) }
+            val (ax, a, hover) = card(ui, "$column:${p.slot.key}", i, x, y, w, h, accentOf(p.slot), tip) {
+                track("first_pick")
+                request(keys = keys + p.slot.key)
+            }
             val box = h - 5
             if (a > 0.6f) {
                 PokemonModels.draw(ui.g, "pick:$column:${p.slot.key}", p.slot.species, p.slot.aspects, ax + 3, y + 3, box, if (hover > 0.5f) ui.partialTick else 0f, zoom = 1f + 0.12f * hover)
@@ -727,7 +995,10 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             tip.append("\n\n").append(Component.literal(t("tip.click_use_team")).withStyle(ChatFormatting.DARK_GRAY))
 
             val accent = if (column == "pc") Palette.OWNED else Palette.CATALOG
-            val (ax, a, hover) = card(ui, "team:$column:$i", i, x, y, w, h, accent, tip) { request(keys = tm.keys) }
+            val (ax, a, hover) = card(ui, "team:$column:$i", i, x, y, w, h, accent, tip) {
+                track("best_team")
+                request(keys = tm.keys)
+            }
             ui.text(t("teams.option", i + 1), ax + 5, y + 4, Palette.alpha(Palette.TEXT, a))
             ui.textRight(t("label.score_lower") + " %.1f".format(tm.total), ax + w - 5, y + 4, Palette.alpha(Palette.GOOD, a))
             if (a < 0.6f || tm.added.isEmpty()) continue
@@ -817,6 +1088,8 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         }
 
         val swapTop = top + 9 + 2 * (ch + gap) + 5
+        anchor("analysis_types", pad, top, leftWidth, swapTop - 4 - top)
+        anchor("analysis_modes", pad, swapTop - 3, leftWidth, bodyBottom - swapTop + 3)
         val w = columnWidth()
         // Alterna entre trocas sugeridas e ameacas ao time.
         var tx = pad
@@ -1083,7 +1356,10 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         for ((i, p) in picks.take(fits).withIndex()) {
             val y = top + i * (h + 2)
             val (ax, a, hover) = card(ui, "raid:$column:${p.slot.key}", i, x, y, w, h, accentOf(p.slot), SetText.raidPickTooltip(p, lang)) {
-                if (!full && p.slot.key !in keys) request(keys = keys + p.slot.key)
+                if (!full && p.slot.key !in keys) {
+                    track("first_pick")
+                    request(keys = keys + p.slot.key)
+                }
             }
             if (a > 0.6f) {
                 PokemonModels.draw(ui.g, "raid:$column:${p.slot.key}", p.slot.species, p.slot.aspects, ax + 3, y + 2, 20, if (hover > 0.5f) ui.partialTick else 0f, zoom = 1f + 0.15f * hover)
@@ -1160,6 +1436,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         }
         if (tv.pcPicks.isNotEmpty()) {
             button(ui, right, top + 3, t("trainer.build"), t("trainer.build_tip"), Palette.OWNED) {
+                track("best_team")
                 request(keys = tv.pcPicks.take(6).map { it.slot.key })
             }
         }
@@ -1220,7 +1497,10 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
                 .append("\n").append(Component.literal(t("trainer.handles", p.handles.joinToString().ifEmpty { "-" })).withStyle(ChatFormatting.GRAY))
                 .append("\n\n").append(Component.literal(t("tip.click_add")).withStyle(ChatFormatting.DARK_GRAY))
             val (ax, a, hover) = card(ui, "counter:$column:${p.slot.key}", i, x, y, w, h, accentOf(p.slot), tip) {
-                if (keys.size < 6 && p.slot.key !in keys) request(keys = keys + p.slot.key)
+                if (keys.size < 6 && p.slot.key !in keys) {
+                    track("first_pick")
+                    request(keys = keys + p.slot.key)
+                }
             }
             if (a > 0.6f) {
                 PokemonModels.draw(ui.g, "counter:$column:${p.slot.key}", p.slot.species, p.slot.aspects, ax + 3, y + 2, 20, if (hover > 0.5f) ui.partialTick else 0f, zoom = 1f + 0.15f * hover)
@@ -1344,6 +1624,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         val w = rightWidth
         val h = bodyBottom - y
         ui.panel(x, y, w, h)
+        anchor("advisor", x, y, w, h)
 
         val slot = s.team.getOrNull(selected)
         val set = s.sets.getOrNull(selected)
@@ -1441,7 +1722,10 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
                 else -> Palette.mix(Palette.MUTED, Palette.TEXT, hover)
             }
             ui.text(label, cx + 4, y + 2, Palette.alpha(color, tt), 0.75f)
-            ui.hit(cx, y, lw, 11, Component.literal(t(if (mode) "advisor.tab_check_tip" else "advisor.tab_set_tip"))) { showChecklist = mode }
+            ui.hit(cx, y, lw, 11, Component.literal(t(if (mode) "advisor.tab_check_tip" else "advisor.tab_set_tip"))) {
+                showChecklist = mode
+                if (mode && state?.team?.getOrNull(selected)?.owned == true) track("checklist")
+            }
             cx += lw + 3
         }
         return 14
@@ -1771,6 +2055,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
     // ---------------------------------------------------------------- entrada
 
     override fun mouseScrolled(mouseX: Double, mouseY: Double, scrollX: Double, scrollY: Double): Boolean {
+        if (tour.isNotEmpty() || showAchievements) return true
         val area = scrollAreas.lastOrNull {
             mouseX >= it.x - 2 && mouseX < it.x + it.w + 4 && mouseY >= it.y && mouseY < it.y + it.h
         }
@@ -1782,6 +2067,19 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
     }
 
     override fun mouseClicked(mouseX: Double, mouseY: Double, button: Int): Boolean {
+        // Tutorial e conquistas ficam por cima: so os botoes deles respondem.
+        if (tour.isNotEmpty() || showAchievements) {
+            if (button != 0) return true
+            val hit = overlayHits.lastOrNull { it.contains(mouseX, mouseY) }
+            when {
+                hit != null -> {
+                    click()
+                    hit.onClick?.invoke()
+                }
+                showAchievements -> showAchievements = false
+            }
+            return true
+        }
         if (super.mouseClicked(mouseX, mouseY, button)) return true
         if (button != 0) return false
         // As areas registradas por ultimo ficam por cima (ex.: o X dentro do slot, a busca).
@@ -1792,6 +2090,22 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
     }
 
     override fun keyPressed(keyCode: Int, scanCode: Int, modifiers: Int): Boolean {
+        if (tour.isNotEmpty()) {
+            when (keyCode) {
+                GLFW.GLFW_KEY_ESCAPE -> endTour(completed = false)
+                GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER, GLFW.GLFW_KEY_SPACE, GLFW.GLFW_KEY_RIGHT -> tourMove(1)
+                GLFW.GLFW_KEY_LEFT, GLFW.GLFW_KEY_BACKSPACE -> tourMove(-1)
+            }
+            return true
+        }
+        if (showAchievements) {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) showAchievements = false
+            return true
+        }
+        if (keyCode == GLFW.GLFW_KEY_F1) {
+            startTour(full = true)
+            return true
+        }
         if ((keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) && input?.isFocused == true) {
             val text = typed()
             val results = searchResults()
@@ -1817,7 +2131,13 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         return super.keyPressed(keyCode, scanCode, modifiers)
     }
 
+    override fun charTyped(codePoint: Char, modifiers: Int): Boolean {
+        if (tour.isNotEmpty() || showAchievements) return true
+        return super.charTyped(codePoint, modifiers)
+    }
+
     override fun removed() {
+        PokemonModels.spotlight = null
         PokemonModels.clear()
         super.removed()
     }
