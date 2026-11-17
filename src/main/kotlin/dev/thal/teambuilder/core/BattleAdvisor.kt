@@ -8,6 +8,9 @@ data class EnemyMon(
     val ability: String,
     val item: String = "",
     val nature: String = "",
+    /** IV e EV de velocidade do treinador (o RCT costuma definir; sem dado, IV 31 e EV 0). */
+    val speIv: Int = 31,
+    val speEv: Int = 0,
 )
 
 data class CounterPick(

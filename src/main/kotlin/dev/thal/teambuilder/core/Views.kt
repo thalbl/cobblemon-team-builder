@@ -155,6 +155,13 @@ data class TrainerEnemyView(
     val nature: String,
     /** Quem do time atual melhor o enfrenta (vazio se o time esta vazio). */
     val answer: String = "",
+    /** Velocidade real dele (com IV, EV, natureza e Choice Scarf). */
+    val speed: Int = 0,
+    /** Membros do seu time mais rapidos e mais lentos que ele, como "Pikachu 102". */
+    val faster: List<String> = emptyList(),
+    val slower: List<String> = emptyList(),
+    /** A resposta ([answer]) ataca antes (1), depois (-1) ou empata/sem time (0). */
+    val answerFaster: Int = 0,
 )
 
 data class CounterView(val slot: SlotView, val score: Int, val handles: List<String>)
@@ -233,6 +240,26 @@ data class RaidView(
     val aspects: List<String> = emptyList(),
     val pcPicks: List<RaidPickView>,
     val allPicks: List<RaidPickView>,
+    /** Raid em grupo: papel de cada jogador (voce primeiro); vazio quando so voce esta na raid. */
+    val group: List<RaidRoleView> = emptyList(),
+)
+
+/**
+ * Papel de um jogador numa raid em grupo.
+ *
+ * @param role "attack" ou "support"
+ * @param avoided tipo de golpe do chefe que ficaria repetido como fraqueza; vazio se nenhum
+ */
+data class RaidRoleView(
+    val player: String,
+    val me: Boolean,
+    val role: String,
+    val pick: SlotView?,
+    val move: String = "",
+    val moveReady: Boolean = true,
+    val supportMoves: List<String> = emptyList(),
+    val learn: List<String> = emptyList(),
+    val avoided: String = "",
 )
 
 data class BuilderState(

@@ -19,6 +19,8 @@ data class TrainerMon(
     val ability: String,
     val item: String,
     val nature: String,
+    val speIv: Int = 31,
+    val speEv: Int = 0,
 )
 
 data class Trainer(
@@ -100,6 +102,8 @@ object Trainers {
                     ability = showdownId(m["ability"]?.asString.orEmpty()),
                     item = strings(m["heldItem"]).firstOrNull()?.substringAfter(':')?.let(::showdownId).orEmpty(),
                     nature = m["nature"]?.asString.orEmpty(),
+                    speIv = m.getAsJsonObject("ivs")?.get("spe")?.asInt ?: 31,
+                    speEv = m.getAsJsonObject("evs")?.get("spe")?.asInt ?: 0,
                 )
             }.orEmpty()
             if (team.isEmpty()) continue
@@ -127,7 +131,7 @@ object Trainers {
             }
             (bySuffix ?: megas.firstOrNull())?.let { profile = it }
         }
-        return EnemyMon(profile, m.level, m.moves, m.ability, m.item, m.nature)
+        return EnemyMon(profile, m.level, m.moves, m.ability, m.item, m.nature, m.speIv, m.speEv)
     }
 
     /** Busca por nome, id ou tipo; sem texto, os treinadores importantes do mais fraco ao mais forte. */

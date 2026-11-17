@@ -147,7 +147,9 @@ object Achievements {
         var changed = false
         state.raid?.let { r ->
             award(player, "raid_tab")
-            val picks = r.pcPicks.mapNotNull { uuidOfKey(it.slot.key) }.toMutableSet()
+            // O Pokemon que o grupo deu para voce tambem conta como recomendado.
+            val mine = r.group.filter { it.me }.mapNotNull { it.pick?.key }
+            val picks = (r.pcPicks.map { it.slot.key } + mine).mapNotNull { uuidOfKey(it) }.toMutableSet()
             if (picks.isNotEmpty() && memoryOf(player).raids.put(r.species, picks) != picks) changed = true
         }
         state.trainer?.let { t ->

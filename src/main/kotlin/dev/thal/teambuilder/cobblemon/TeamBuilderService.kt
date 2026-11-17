@@ -9,6 +9,10 @@ import dev.thal.teambuilder.core.CoreView
 import dev.thal.teambuilder.core.Cores
 import dev.thal.teambuilder.core.PairView
 import dev.thal.teambuilder.core.CounterView
+import dev.thal.teambuilder.core.RaidGroupAdvisor
+import dev.thal.teambuilder.core.RaidMember
+import dev.thal.teambuilder.core.RaidRoleView
+import dev.thal.teambuilder.core.Speed
 import dev.thal.teambuilder.core.EvolutionView
 import dev.thal.teambuilder.core.MoveStatus
 import dev.thal.teambuilder.core.ThreatView
@@ -148,6 +152,30 @@ object TeamBuilderService {
         return boss to if (boss == null) lang.t("raid.unknown", query) else null
     }
 
+    /** Papel de cada jogador do grupo da raid (voce primeiro); vazio se voce esta sozinho. */
+    private fun raidGroup(player: ServerPlayer, s: Session, boss: RaidBossInfo): List<RaidRoleView> {
+        val others = RaidLookup.groupOf(player, Config.current.groupRaidRadius.coerceIn(4, 64)).take(7)
+        if (others.isEmpty()) return emptyList()
+        val me = RaidMember(player.uuid.toString(), player.gameProfile.name, s.owned.filter(s.engine::allowed))
+        val members = listOf(me) + others.map { o ->
+            val os = session(o)
+            RaidMember(o.uuid.toString(), o.gameProfile.name, os.owned.filter(os.engine::allowed))
+        }
+        return RaidGroupAdvisor(s.catalog.moves, s.catalog.raids).assign(boss, members).map { a ->
+            RaidRoleView(
+                player = a.member.name,
+                me = a.member.id == me.id,
+                role = a.role.name.lowercase(),
+                pick = a.pick?.let { slot(it.pick, s) },
+                move = a.pick?.move.orEmpty(),
+                moveReady = a.pick?.moveReady ?: true,
+                supportMoves = a.supportMoves,
+                learn = a.learn,
+                avoided = a.avoided.orEmpty(),
+            )
+        }
+    }
+
     fun raidView(s: Session, boss: RaidBossInfo): RaidView {
         fun picks(pool: Collection<Profile>) = s.catalog.raids.rank(boss, pool.filter(s.engine::allowed), 6).map {
             RaidPickView(slot(it.pick, s), it.score, it.move.orEmpty(), it.moveReady, it.effectiveness, it.worstTaken)
@@ -206,7 +234,11 @@ object TeamBuilderService {
         var raid: RaidView? = null
         if (request.raid != null) {
             val (boss, problem) = raidBoss(player, s.catalog, request.raid, lang)
-            if (boss != null) raid = raidView(s, boss) else error = problem
+            if (boss != null) {
+                raid = raidView(s, boss)
+                // Grupo so quando a raid foi detectada (cristal ou raid em andamento), nao num chefe digitado.
+                if (request.raid.isBlank() && Config.current.groupRaids) raid = raid.copy(group = raidGroup(player, s, boss))
+            } else error = problem
         }
 
         val progress = RctProgress.of(player)
@@ -436,7 +468,18 @@ object TeamBuilderService {
                         ability = e.ability.ifEmpty { e.profile.ability },
                     ),
                     e.level, e.moves, e.ability, e.item, e.nature, answers[i]?.first?.name.orEmpty(),
-                )
+                ).let { view ->
+                    // Quem do time ataca antes dele: velocidade real dos dois lados.
+                    val speed = Speed.of(e)
+                    val mine = team.map { it to Speed.of(it, e.level) }
+                    val answer = answers[i]?.first
+                    view.copy(
+                        speed = speed,
+                        faster = mine.filter { it.second > speed }.sortedByDescending { it.second }.map { "${it.first.name} ${it.second}" },
+                        slower = mine.filter { it.second <= speed }.sortedByDescending { it.second }.map { "${it.first.name} ${it.second}" },
+                        answerFaster = answer?.let { Integer.signum(Speed.of(it, e.level) - speed) } ?: 0,
+                    )
+                }
             },
             pcPicks = picks(s.owned), allPicks = picks(s.catalog.all.values),
             defeated = progress?.defeated?.contains(t.id) == true,

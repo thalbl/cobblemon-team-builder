@@ -60,6 +60,10 @@ class RaidAdvisor(private val moves: Map<String, MoveInfo>) {
         return evaluate(p, defense, bossAttackTypes(boss, tera), enemyLevel)
     }
 
+    /** Tipos (indices de [TypeChart.TYPES]) dos golpes de dano do chefe. */
+    fun attackTypes(boss: RaidBossInfo): List<Int> =
+        bossAttackTypes(boss, boss.teraType?.takeIf { TypeChart.indexOf(it) >= 0 })
+
     private fun bossAttackTypes(boss: RaidBossInfo, tera: String?): List<Int> {
         val types = boss.moves.mapNotNull { moves[it] }
             .filter { it.category != MoveCategory.STATUS }

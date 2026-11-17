@@ -20,6 +20,13 @@ data class TeamBuilderConfig(
     val searchResults: Int = 8,
     /** Quantas ameacas a analise lista. */
     val threats: Int = 8,
+    /**
+     * Raid em grupo: a aba Raid mostra quem do grupo leva o que, com o Pokemon sugerido de cada
+     * jogador (ou seja, mostra parte do PC dos outros). false desliga para todo o servidor.
+     */
+    val groupRaids: Boolean = true,
+    /** Distancia (em blocos) do cristal para um jogador contar como parte do grupo antes da raid comecar. */
+    val groupRaidRadius: Int = 16,
     /** Nivel de permissao para /teambuilder snapshot e /teambuilder reload (2 = op comum). */
     val adminPermissionLevel: Int = 2,
     /** Pesos da nota do time; veja a documentacao de cada campo em core/TeamScorer.kt. */

@@ -63,10 +63,35 @@ object RaidLookup {
         return call(mine, "getRaidBoss")
     }
 
-    private fun nearestCrystalBoss(player: ServerPlayer): Any? {
+    /**
+     * Jogadores que enfrentam a mesma raid que [player], sem contar ele: os que ja estao na raid,
+     * ou, antes de comecar, os que estao perto do mesmo cristal.
+     */
+    fun groupOf(player: ServerPlayer, radius: Int): List<ServerPlayer> {
+        if (!installed) return emptyList()
+        return try {
+            val raids = Class.forName(RAID_HELPER).getField("ACTIVE_RAIDS").get(null) as? Map<*, *>
+            val mine = raids?.values?.filterNotNull()?.firstOrNull { call(it, "isPlayerIn", player) == true }
+            if (mine != null) {
+                @Suppress("UNCHECKED_CAST")
+                return (call(mine, "getPlayers") as? List<ServerPlayer>).orEmpty().filter { it.uuid != player.uuid }
+            }
+            val crystal = nearestCrystal(player)?.first ?: return emptyList()
+            val center = net.minecraft.world.phys.Vec3.atCenterOf(crystal)
+            player.serverLevel().players().filter { it.uuid != player.uuid && it.position().distanceTo(center) <= radius }
+        } catch (e: Throwable) {
+            TeamBuilderMod.LOGGER.debug("Nao consegui ler o grupo da raid", e)
+            emptyList()
+        }
+    }
+
+    private fun nearestCrystalBoss(player: ServerPlayer): Any? = nearestCrystal(player)?.second
+
+    /** Cristal de raid mais proximo e o chefe dele. */
+    private fun nearestCrystal(player: ServerPlayer): Pair<BlockPos, Any>? {
         val level = player.level()
         val origin = player.blockPosition()
-        var best: Any? = null
+        var best: Pair<BlockPos, Any>? = null
         var bestDistance = Double.MAX_VALUE
         for (pos in BlockPos.betweenClosed(origin.offset(-SEARCH_RADIUS, -SEARCH_RADIUS, -SEARCH_RADIUS), origin.offset(SEARCH_RADIUS, SEARCH_RADIUS, SEARCH_RADIUS))) {
             val entity = level.getBlockEntity(pos) ?: continue
@@ -75,7 +100,7 @@ object RaidLookup {
             val distance = pos.distSqr(origin)
             if (distance < bestDistance) {
                 bestDistance = distance
-                best = boss
+                best = pos.immutable() to boss
             }
         }
         return best

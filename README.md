@@ -149,6 +149,13 @@ Com o Cobblemon Raid Dens, a aba detecta o chefe da raid em que você está, ou 
 - o pior golpe do chefe neles;
 - se o golpe precisa ser aprendido antes.
 
+**Raid em grupo.** Com amigos na mesma raid (ou a até 16 blocos do mesmo cristal, antes de começar), a coluna da direita ganha a aba **GRUPO**, com um card por jogador dizendo quem faz **ATAQUE** e quem faz **SUPORTE**, e o Pokémon que cada um leva. No Raid Dens cada jogador luta na própria batalha, mas mudanças de atributo, telas e clima valem para todos, então:
+- com 2 ou 3 jogadores, 1 fica no suporte; com 4 ou mais, 2. Fica quem tem o melhor Pokémon de suporte e, de preferência, o ataque mais fraco do grupo;
+- o suporte usa golpes que servem contra aquele chefe: Reflect só se ele bate físico, Light Screen só se bate especial, além de baixar o ataque ou a defesa dele;
+- os atacantes evitam repetir a mesma fraqueza: se um já é fraco a um golpe do chefe, o próximo prefere um Pokémon que não seja.
+
+Só funciona com a raid detectada (não com chefe digitado) e mostra o Pokémon sugerido de cada amigo. Para desligar no servidor, use `groupRaids: false` na configuração.
+
 ![Raid contra um Kingler com tera Fantasma, com o núcleo Trick Room ativo no cabeçalho](docs/images/raid-trick-room.png)
 
 ### Treinadores
@@ -161,6 +168,8 @@ Lê os times reais do Radical Cobblemon Trainers: cerca de 1.700 treinadores, in
 **Rota da liga.** Sem texto na busca, a lista segue o seu progresso no RCT: o **PRÓXIMO** treinador da sua série vem primeiro (com borda dourada), depois os que faltam vencer, do mais fraco ao mais forte, e os já vencidos (✔) no fim. No topo aparecem o seu limite de nível e quantos você já venceu.
 
 **% pronto.** Cada treinador mostra quão pronto o seu time atual está contra ele (verde a partir de 70%, amarelo a partir de 40%). Para cada Pokémon dele, a nota olha se alguém do seu time bate com vantagem, aguenta os golpes dele e está no nível dele. O tooltip mostra o nível médio dos dois lados e quem ficou sem resposta.
+
+**Quem é mais rápido.** Cada Pokémon do treinador mostra a velocidade real dele, usando os IVs, EVs e a natureza do arquivo do RCT, além do Choice Scarf. Também mostra quem do seu time é mais rápido ou mais lento que ele, já com o nível, IVs, EVs, natureza e item do seu exemplar. No card, a seta ao lado da resposta indica se ela ataca antes (▲ verde) ou depois (▼ amarelo) do adversário.
 
 **Nível importa.** Os counters do seu PC agora levam o nível do treinador em conta: um Pokémon bem abaixo dele cai na lista e aparece com o nível em vermelho.
 
@@ -281,6 +290,8 @@ O arquivo `config/cobblemon_team_builder/config.json` é criado na primeira exec
 | `defaultDoubles` | `false` | começar no modo 2v2 |
 | `searchResults` | `8` | quantos cards a busca mostra |
 | `threats` | `8` | quantas ameaças a análise lista |
+| `groupRaids` | `true` | raid em grupo: mostra quem do grupo leva o quê (inclui o Pokémon sugerido de cada amigo) |
+| `groupRaidRadius` | `16` | distância do cristal, em blocos, para contar como parte do grupo antes da raid começar |
 | `adminPermissionLevel` | `2` | permissão dos comandos de admin |
 | `weightsSingles` / `weightsDoubles` | — | todos os pesos da nota, separados para 1v1 e 2v2 |
 

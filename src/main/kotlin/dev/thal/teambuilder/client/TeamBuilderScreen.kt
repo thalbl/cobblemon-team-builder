@@ -83,6 +83,9 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
     /** Parte de baixo da Analise: 0 = trocas, 1 = ameacas, 2 = duplas (so no 2v2). */
     private var analysisMode = 0
 
+    /** Raid: a coluna da direita mostra o grupo (quando ha) em vez de todo o Cobblemon. */
+    private var raidShowGroup = true
+
     /** Painel da direita: false = set sugerido, true = o que falta para montar o set. */
     private var showChecklist = false
 
@@ -1389,9 +1392,101 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
         val w = columnWidth()
         ui.text(t("column.pc_upper"), pad, listTop, Palette.OWNED, 0.75f)
         if (r.partySize > 0) ui.textRight(t("raid.bring", r.partySize), pad + w, listTop, Palette.FAINT, 0.75f)
-        ui.text(t("column.all_upper"), pad + w + 4, listTop, Palette.CATALOG, 0.75f)
+        val hasGroup = r.group.size >= 2
+        val showGroup = hasGroup && raidShowGroup
+        if (hasGroup) {
+            // Chips: todo o Cobblemon | Grupo (n).
+            var cx = pad + w + 4
+            for ((mode, label) in listOf(false to t("column.all_upper"), true to t("raid.group_tab", r.group.size))) {
+                val active = showGroup == mode
+                val lw = ui.width(label, 0.75f) + 6
+                val hover = smooth("rgrp:$mode", if (ui.over(cx, listTop - 2, lw, 10)) 1f else 0f)
+                ui.panel(
+                    cx, listTop - 2, lw, 10,
+                    if (active) Palette.mix(Palette.CARD, Palette.RAID, 0.22f) else Palette.mix(Palette.CARD, Palette.CARD_HOVER, hover),
+                    if (active) Palette.RAID else Palette.EDGE,
+                )
+                val color = when {
+                    !active -> Palette.mix(Palette.MUTED, Palette.TEXT, hover)
+                    mode -> Palette.RAID
+                    else -> Palette.CATALOG
+                }
+                ui.text(label, cx + 3, listTop, color, 0.75f)
+                ui.hit(cx, listTop - 2, lw, 10, Component.literal(t(if (mode) "raid.group_tip" else "raid.all_tip"))) {
+                    raidShowGroup = mode
+                    contentAt = now()
+                }
+                cx += lw + 3
+            }
+            anchor("raid_group", pad + w + 4, listTop - 2, w, bodyBottom - listTop + 2)
+        } else {
+            ui.text(t("column.all_upper"), pad + w + 4, listTop, Palette.CATALOG, 0.75f)
+        }
         raidColumn(ui, "pc", pad, listTop + 9, w, r.pcPicks)
-        raidColumn(ui, "all", pad + w + 4, listTop + 9, w, r.allPicks)
+        if (showGroup) groupColumn(ui, r, pad + w + 4, listTop + 9, w)
+        else raidColumn(ui, "all", pad + w + 4, listTop + 9, w, r.allPicks)
+    }
+
+    /** Raid em grupo: um card por jogador com o papel (ataque ou suporte) e o Pokemon que ele leva. */
+    private fun groupColumn(ui: Ui, r: RaidView, x: Int, top: Int, w: Int) {
+        val h = 30
+        val fits = max(1, (bodyBottom - top + 2) / (h + 2))
+        for ((i, g) in r.group.take(fits).withIndex()) {
+            val y = top + i * (h + 2)
+            val support = g.role == "support"
+            val roleColor = if (support) Palette.CYAN else Palette.RAID
+            val roleLabel = t(if (support) "raid.role_support" else "raid.role_attack")
+            val who = if (g.me) t("raid.you", g.player) else g.player
+
+            val tip = Component.literal(who).withStyle(if (g.me) ChatFormatting.GOLD else ChatFormatting.WHITE)
+                .append(Component.literal("  " + roleLabel).withStyle(if (support) ChatFormatting.AQUA else ChatFormatting.RED))
+                .append("\n").append(Component.literal(t(if (support) "raid.support_why" else "raid.attack_why")).withStyle(ChatFormatting.GRAY))
+            val pick = g.pick
+            if (pick == null) {
+                tip.append("\n\n").append(Component.literal(t("raid.no_pick")).withStyle(ChatFormatting.RED))
+            } else {
+                tip.append("\n\n").append(Component.literal(pick.name).withStyle(ChatFormatting.GREEN))
+                    .append(Component.literal("  " + pick.info).withStyle(ChatFormatting.DARK_GRAY))
+                if (!support && g.move.isNotEmpty()) {
+                    tip.append("\n").append(Component.literal(t("label.moves") + ": ").withStyle(ChatFormatting.GRAY)).append(SetText.move(g.move))
+                    if (!g.moveReady) tip.append(Component.literal("  (" + t("move.learn") + ")").withStyle(ChatFormatting.GOLD))
+                }
+                if (support && g.supportMoves.isNotEmpty()) {
+                    tip.append("\n").append(Component.literal(t("raid.support_moves") + " ").withStyle(ChatFormatting.GRAY))
+                    g.supportMoves.forEachIndexed { k, m ->
+                        if (k > 0) tip.append(Component.literal(", ").withStyle(ChatFormatting.DARK_GRAY))
+                        tip.append(SetText.move(m))
+                    }
+                }
+                if (support && g.learn.isNotEmpty()) {
+                    tip.append("\n").append(Component.literal(t("raid.support_learn") + " ").withStyle(ChatFormatting.GRAY))
+                    g.learn.forEachIndexed { k, m ->
+                        if (k > 0) tip.append(Component.literal(", ").withStyle(ChatFormatting.DARK_GRAY))
+                        tip.append(SetText.move(m))
+                    }
+                }
+                if (g.avoided.isNotEmpty()) {
+                    tip.append("\n").append(Component.literal(t("raid.avoided") + " ").withStyle(ChatFormatting.GRAY)).append(SetText.type(g.avoided))
+                }
+            }
+
+            val (ax, a, hover) = card(ui, "group:$i:${g.player}", i, x, y, w, h, roleColor, tip, null)
+            if (g.me) ui.rect(ax + 1, y + 1, 2, h - 2, Palette.alpha(Palette.GOLD, a))
+            if (a > 0.6f && pick != null) {
+                PokemonModels.draw(ui.g, "group:${g.player}:${pick.key}", pick.species, pick.aspects, ax + 4, y + 4, 22, if (hover > 0.5f) ui.partialTick else 0f, zoom = 1f + 0.12f * hover)
+            }
+            val tx = ax + 30
+            ui.textRight(roleLabel, ax + w - 4, y + 3, Palette.alpha(roleColor, a), 0.75f)
+            ui.text(ui.fit(who, w - 40 - ui.width(roleLabel, 0.75f)), tx, y + 3, Palette.alpha(if (g.me) Palette.GOLD else Palette.TEXT, a))
+            val line: Component = when {
+                pick == null -> Component.literal(t("raid.no_pick"))
+                support && g.supportMoves.isNotEmpty() -> Component.literal(pick.name + " · ").append(SetText.move(g.supportMoves.first()))
+                support -> Component.literal(pick.name + " · " + t("raid.support_learn_short"))
+                g.move.isNotEmpty() -> Component.literal(pick.name + " · ").append(SetText.move(g.move))
+                else -> Component.literal(pick.name)
+            }
+            ui.text(line, tx, y + 15, Palette.alpha(if (pick == null) Palette.BAD else Palette.MUTED, a), 0.75f)
+        }
     }
 
     private fun raidBanner(ui: Ui, r: RaidView, top: Int) {
@@ -1586,10 +1681,21 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
             if (e.item.isNotEmpty()) tip.append("\n").append(Component.literal(t("label.item") + ": ").withStyle(ChatFormatting.GRAY)).append(SetText.item(e.item))
             if (e.ability.isNotEmpty()) tip.append("\n").append(Component.literal(t("label.ability") + ": ").withStyle(ChatFormatting.GRAY)).append(SetText.ability(e.ability))
             if (e.nature.isNotEmpty()) tip.append("\n").append(Component.literal(t("label.nature") + ": ").withStyle(ChatFormatting.GRAY)).append(SetText.nature(e.nature))
+            if (e.speed > 0) {
+                tip.append("\n\n").append(Component.literal(t("speed.enemy", e.speed)).withStyle(ChatFormatting.GOLD))
+                if (e.faster.isNotEmpty()) tip.append("\n").append(Component.literal(t("speed.faster", e.faster.joinToString(", "))).withStyle(ChatFormatting.GREEN))
+                if (e.slower.isNotEmpty()) tip.append("\n").append(Component.literal(t("speed.slower", e.slower.joinToString(", "))).withStyle(ChatFormatting.RED))
+            }
             tip.append("\n\n").append(
                 Component.literal(if (answered) t("trainer.answer", e.answer) else t("trainer.no_answer"))
                     .withStyle(if (answered) ChatFormatting.GREEN else ChatFormatting.RED)
             )
+            if (answered && e.answerFaster != 0) {
+                tip.append("\n").append(
+                    Component.literal(t(if (e.answerFaster > 0) "speed.answer_first" else "speed.answer_second", e.answer))
+                        .withStyle(if (e.answerFaster > 0) ChatFormatting.GREEN else ChatFormatting.GOLD)
+                )
+            }
             val (ax, a, hover) = card(ui, "enemy:${tv.id}:$i", i, x, ey, ew, eh, Palette.RAID, tip, null)
             if (a > 0.6f) {
                 PokemonModels.draw(ui.g, "enemy:${tv.id}:$i", e.slot.species, e.slot.aspects, ax + 3, ey + 3, 22, if (hover > 0.5f) ui.partialTick else 0f, zoom = 1f + 0.12f * hover)
@@ -1598,7 +1704,14 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
             ui.text(t("info.level_short", e.level), ax + 27, ey + 12, Palette.alpha(Palette.GOLD, a), 0.75f)
             typeIcons(ui, e.slot.types, e.slot.ability, e.slot.name, ax + 27, ey + 19, a)
             val answer = if (answered) e.answer else if (s.team.isEmpty()) "" else t("trainer.no_answer_short")
-            ui.text(ui.fit(answer, ew - 6, 0.75f), ax + 3, ey + eh - 9, Palette.alpha(if (answered) Palette.OWNED else Palette.BAD, a), 0.75f)
+            // Seta: a resposta ataca antes (verde) ou depois (amarelo) dele.
+            var answerX = ax + 3
+            if (answered && e.answerFaster != 0) {
+                val arrow = if (e.answerFaster > 0) "▲" else "▼"
+                ui.text(arrow, answerX, ey + eh - 9, Palette.alpha(if (e.answerFaster > 0) Palette.GOOD else Palette.GOLD, a), 0.75f)
+                answerX += ui.width(arrow, 0.75f) + 2
+            }
+            ui.text(ui.fit(answer, ew - 6 - (answerX - ax - 3), 0.75f), answerX, ey + eh - 9, Palette.alpha(if (answered) Palette.OWNED else Palette.BAD, a), 0.75f)
         }
 
         // Counters.
