@@ -50,10 +50,14 @@ class RaidAdvisor(private val moves: Map<String, MoveInfo>) {
     }
 
     /** Valor bruto de [p] contra um oponente (dano causado x quanto aguenta), sem normalizar. */
-    fun matchup(boss: RaidBossInfo, p: Profile): Pair<Double, RaidPick>? {
+    /**
+     * Valor de [p] contra [boss]. Com [enemyLevel] (treinadores), especies do catalogo sao
+     * avaliadas nesse nivel e um Pokemon do jogador abaixo dele perde valor rapido.
+     */
+    fun matchup(boss: RaidBossInfo, p: Profile, enemyLevel: Int? = null): Pair<Double, RaidPick>? {
         val tera = boss.teraType?.takeIf { TypeChart.indexOf(it) >= 0 }
         val defense = TypeChart.defensiveProfile(tera?.let(::listOf) ?: boss.types, boss.ability)
-        return evaluate(p, defense, bossAttackTypes(boss, tera))
+        return evaluate(p, defense, bossAttackTypes(boss, tera), enemyLevel)
     }
 
     private fun bossAttackTypes(boss: RaidBossInfo, tera: String?): List<Int> {
@@ -69,9 +73,9 @@ class RaidAdvisor(private val moves: Map<String, MoveInfo>) {
         return types.map(TypeChart::indexOf).filter { it >= 0 }
     }
 
-    private fun evaluate(p: Profile, bossDefense: DoubleArray, attackTypes: List<Int>): Pair<Double, RaidPick>? {
+    private fun evaluate(p: Profile, bossDefense: DoubleArray, attackTypes: List<Int>, enemyLevel: Int? = null): Pair<Double, RaidPick>? {
         val c = p.candidate
-        val level = c.owned?.level ?: 100
+        val level = c.owned?.level ?: enemyLevel ?: 100
         fun stat(key: StatKey) = (2 * (c.baseStats[key] ?: 0) + 31) * level / 100 + 5
         val atk = stat(StatKey.ATK)
         val spa = stat(StatKey.SPA)
@@ -117,7 +121,13 @@ class RaidAdvisor(private val moves: Map<String, MoveInfo>) {
         val bulk = hp * (stat(StatKey.DEF) + stat(StatKey.SPD)) / 2.0
         val survivability = bulk / max(worst * 0.6 + average * 0.4, 0.1)
 
-        val total = offense * sqrt(survivability)
+        // Os stats ja crescem com o nivel, mas o adversario tambem: abaixo do nivel dele o confronto
+        // piora mais do que a conta acima mostra.
+        val gap = if (c.owned != null && enemyLevel != null && enemyLevel > 0 && level < enemyLevel) {
+            val r = level.toDouble() / enemyLevel
+            r * r
+        } else 1.0
+        val total = offense * sqrt(survivability) * gap
         return total to RaidPick(p, 0, move?.id, moveReady || owned == null, effectiveness, worst)
     }
 }

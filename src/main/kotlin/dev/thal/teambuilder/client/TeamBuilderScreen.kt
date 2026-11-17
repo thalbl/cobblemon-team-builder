@@ -52,7 +52,10 @@ import kotlin.math.sin
  * Nada de time e calculado aqui: cada acao pede um novo [BuilderState] ao servidor. O desenho e
  * refeito inteiro a cada frame, o que deixa as animacoes simples: tudo e funcao do tempo.
  */
-class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
+/**
+ * @param startTrainer abre direto na aba Treinadores com este treinador (botao do relatorio de derrota)
+ */
+class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Component.literal("Team Builder")) {
     private enum class Tab(val key: String) {
         SUGGEST("tab.suggest"), TEAMS("tab.teams"), ANALYSIS("tab.analysis"), RAID("tab.raid"), TRAINERS("tab.trainers"), SAVED("tab.saved")
     }
@@ -142,11 +145,14 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         if (newState.trainer == null) trainerId = null
         if (newState.error == null && arrived.isNotEmpty()) clearInput()
         // Um time diferente traz outras sugestoes: as listas voltam ao topo.
-        if (newState.team.map { it.key } != state?.team?.map { it.key }) {
+        val teamChanged = newState.team.map { it.key } != state?.team?.map { it.key }
+        if (teamChanged) {
             scrolls.clear()
             scrollShown.clear()
         }
         state = newState
+        // A lista de treinadores mostra quao pronto o time esta: refaz com o time novo.
+        if (teamChanged && tab == Tab.TRAINERS && trainerId == null) sendSearch(typed())
         waiting = false
         contentAt = now
     }
@@ -233,7 +239,7 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         searchSent = text
         if (!ClientPlayNetworking.canSend(SearchPayload.TYPE)) return
         when {
-            tab == Tab.TRAINERS -> ClientPlayNetworking.send(SearchPayload(Network.GSON.toJson(SearchRequest(text, "trainer"))))
+            tab == Tab.TRAINERS -> ClientPlayNetworking.send(SearchPayload(Network.GSON.toJson(SearchRequest(text, "trainer", keys))))
             text.length >= 2 && text.none { it in ",;+/" } -> ClientPlayNetworking.send(SearchPayload(Network.GSON.toJson(SearchRequest(text))))
             else -> search = null
         }
@@ -329,7 +335,14 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         box.value = input?.value.orEmpty()
         addWidget(box)
         input = box
-        if (state == null && !waiting && localError == null) request(useParty = true)
+        if (state == null && !waiting && localError == null) {
+            startTrainer?.let {
+                tab = Tab.TRAINERS
+                trainerId = it
+                startTrainer = null
+            }
+            request(useParty = true)
+        }
     }
 
     override fun isPauseScreen() = false
@@ -927,13 +940,76 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             ui.text(t("full.suggest_hint"), pad + 2, top + 26, Palette.MUTED, 0.75f)
             return
         }
-        pickColumn(ui, "pc", pad, top + 9, w, s.pcPicks)
+        // Evolucoes que valem a pena ficam embaixo das sugestoes do PC.
+        // Mas so quantas couberem sem as sugestoes ficarem menores que 24px.
+        val room = bodyBottom - (top + 9) - s.pcPicks.size.coerceAtLeast(1) * 26 - 13
+        val evoCount = min(s.evolutions.size, max(0, room / (EVO_ROW + 2)))
+        val evoH = if (evoCount == 0) 0 else 9 + evoCount * (EVO_ROW + 2) + 4
+        val pcBottom = bodyBottom - evoH
+        pickColumn(ui, "pc", pad, top + 9, w, s.pcPicks, pcBottom)
+        if (evoH > 0) evolutionList(ui, s.copy(evolutions = s.evolutions.take(evoCount)), pad, pcBottom + 4, w)
         pickColumn(ui, "all", pad + w + 4, top + 9, w, s.allPicks)
     }
 
-    private fun pickColumn(ui: Ui, column: String, x: Int, top: Int, w: Int, picks: List<PickView>) {
+    private val EVO_ROW = 24
+
+    /** Pokemon do PC que, evoluidos, entrariam entre as melhores sugestoes. */
+    private fun evolutionList(ui: Ui, s: BuilderState, x: Int, top: Int, w: Int) {
+        ui.text(t("evo.title"), x, top, Palette.OWNED, 0.75f)
+        anchor("evolutions", x, top - 1, w, bodyBottom - top + 1)
+        for ((i, e) in s.evolutions.withIndex()) {
+            val y = top + 9 + i * (EVO_ROW + 2)
+            val method = evoMethod(e)
+            val levelReq = e.method.removePrefix("lv:").toIntOrNull()?.takeIf { e.method.startsWith("lv:") }
+            val overCap = levelReq != null && s.levelCap in 1 until levelReq
+            val tip = Component.literal("${e.from.name} → ${e.to.name}").withStyle(ChatFormatting.WHITE)
+                .append(Component.literal("  +%.1f".format(e.gain)).withStyle(ChatFormatting.GREEN))
+                .append("\n").append(Component.literal(t("evo.yours", e.from.name, e.from.level)).withStyle(ChatFormatting.GRAY))
+                .append("\n").append(Component.literal(t("evo.how") + " ").withStyle(ChatFormatting.GRAY)).append(method.copy().withStyle(ChatFormatting.AQUA))
+            if (e.stages > 1) tip.append("\n").append(Component.literal(t("evo.stages", e.stages)).withStyle(ChatFormatting.GRAY))
+            if (overCap) tip.append("\n").append(Component.literal(t("evo.over_cap", s.levelCap)).withStyle(ChatFormatting.GOLD))
+            for (r in e.reasons) tip.append("\n").append(Component.literal("- ").withStyle(ChatFormatting.GRAY)).append(SetText.rich(r, ChatFormatting.GRAY))
+            tip.append("\n\n").append(Component.literal(t("evo.click", e.to.name)).withStyle(ChatFormatting.DARK_GRAY))
+
+            val (ax, a, hover) = card(ui, "evo:${e.from.key}:${e.to.key}", i + 5, x, y, w, EVO_ROW, Palette.OWNED, tip) {
+                if (keys.size < 6) {
+                    track("first_pick")
+                    request(keys = keys + e.to.key)
+                }
+            }
+            if (a > 0.6f) {
+                PokemonModels.draw(ui.g, "evo:from:${e.from.key}", e.from.species, e.from.aspects, ax + 3, y + 3, 18, 0f)
+                PokemonModels.draw(ui.g, "evo:to:${e.to.key}", e.to.species, e.to.aspects, ax + 31, y + 3, 18, if (hover > 0.5f) ui.partialTick else 0f, zoom = 1f + 0.12f * hover)
+            }
+            ui.text("→", ax + 22, y + 8, Palette.alpha(Palette.OWNED, a))
+            val tx = ax + 53
+            val gain = "+%.1f".format(e.gain)
+            ui.textRight(gain, ax + w - 4, y + 3, Palette.alpha(Palette.GOOD, a))
+            ui.text(ui.fit(e.to.name, w - 60 - ui.width(gain)), tx, y + 3, Palette.alpha(Palette.CATALOG, a))
+            val line = Component.literal(t("evo.from_short", e.from.name, e.from.level) + " · ").append(method)
+            ui.text(line, tx, y + 13, Palette.alpha(if (overCap) Palette.GOLD else Palette.MUTED, a), 0.75f)
+        }
+    }
+
+    /** "nivel 28", "Pedra do Fogo" (nome do item no idioma do jogo), "troca"... */
+    private fun evoMethod(e: dev.thal.teambuilder.core.EvolutionView): MutableComponent {
+        val m = e.method
+        return when {
+            m.startsWith("lv:") -> Component.literal(t("evo.level", m.removePrefix("lv:")))
+            m.startsWith("item:") -> {
+                val item = net.minecraft.resources.ResourceLocation.tryParse(m.removePrefix("item:"))
+                    ?.let { net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(it).orElse(null) }
+                if (item != null) Component.translatable(item.descriptionId) else Component.literal(t("evo.other"))
+            }
+            m == "trade" -> Component.literal(t("evo.trade"))
+            m == "friendship" -> Component.literal(t("evo.friendship"))
+            else -> Component.literal(t("evo.other"))
+        }
+    }
+
+    private fun pickColumn(ui: Ui, column: String, x: Int, top: Int, w: Int, picks: List<PickView>, bottom: Int = bodyBottom) {
         if (picks.isEmpty()) return empty(ui, x, top, t("empty.no_suggestions"))
-        val h = min(31, (bodyBottom - top) / picks.size - 2)
+        val h = min(31, (bottom - top) / picks.size - 2)
         for ((i, p) in picks.withIndex()) {
             val y = top + i * (h + 2)
             val tip = reasonsTip(
@@ -1393,7 +1469,19 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
     /** Lista de treinadores do RCT; o campo de nome filtra. */
     private fun trainerPicker(ui: Ui, top: Int) {
         ui.text(t("trainer.pick"), pad, top, Palette.RAID, 0.75f)
-        ui.textRight(t("trainer.search_hint"), pad + leftWidth, top, Palette.FAINT, 0.75f)
+        val result = trainerList
+        if (result != null && (result.levelCap > 0 || result.defeatedCount > 0)) {
+            // Progresso do RCT no lugar da dica de busca.
+            val route = buildList {
+                if (result.levelCap > 0) add(t("route.cap", result.levelCap))
+                add(t("route.defeated", result.defeatedCount))
+            }.joinToString(" · ")
+            ui.textRight(route, pad + leftWidth, top, Palette.GOLD, 0.75f)
+            val rw = ui.width(route, 0.75f)
+            ui.hit(pad + leftWidth - rw, top - 1, rw, 8, Component.literal(t("route.tip")))
+        } else {
+            ui.textRight(t("trainer.search_hint"), pad + leftWidth, top, Palette.FAINT, 0.75f)
+        }
         val list = trainerList?.trainers.orEmpty()
         if (list.isEmpty()) {
             ui.text(t(if (trainerList == null) "status.calculating" else "trainer.none"), pad + 2, top + 14, Palette.TEXT)
@@ -1409,12 +1497,34 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             val tip = Component.literal(tr.name).withStyle(ChatFormatting.GOLD)
             if (tr.type.isNotEmpty()) tip.append(Component.literal("  " + tr.type).withStyle(ChatFormatting.GRAY))
             for (m in tr.members) tip.append("\n").append(Component.literal("${m.name}  ${t("info.level_short", m.level)}").withStyle(ChatFormatting.GRAY))
+            if (tr.next) tip.append("\n").append(Component.literal(t("route.next_tip")).withStyle(ChatFormatting.GOLD))
+            if (tr.defeated) tip.append("\n").append(Component.literal(t("route.defeated_tip")).withStyle(ChatFormatting.GREEN))
+            if (tr.readiness >= 0) tip.append("\n").append(Component.literal(t("readiness.tip_short", tr.readiness)).withStyle(readinessFormat(tr.readiness)))
             tip.append("\n\n").append(Component.literal(t("trainer.click")).withStyle(ChatFormatting.DARK_GRAY))
-            val (ax, a, hover) = card(ui, "trainer:${tr.id}", i, x, y, w, h, Palette.RAID, tip) { chooseTrainer(tr.id) }
+            val accent = if (tr.next) Palette.mix(Palette.GOLD, Palette.TEXT, pulse(1200f) * 0.4f) else Palette.RAID
+            val (ax, a0, hover) = card(ui, "trainer:${tr.id}", i, x, y, w, h, accent, tip) { chooseTrainer(tr.id) }
+            // Ja vencidos ficam apagados; o proximo da serie ganha uma borda dourada.
+            val a = if (tr.defeated) a0 * 0.55f else a0
+            if (tr.next) ui.frame(ax, y, w, h, Palette.alpha(accent, a))
+            var right = ax + w - 4
+            if (tr.readiness >= 0) {
+                val pct = "${tr.readiness}%"
+                ui.textRight(pct, right, y + 3, Palette.alpha(readinessColor(tr.readiness), a), 0.75f)
+                right -= ui.width(pct, 0.75f) + 4
+            }
             val level = t("info.level_short", tr.level)
-            ui.textRight(level, ax + w - 4, y + 3, Palette.alpha(Palette.GOLD, a), 0.75f)
-            ui.text(ui.fit(tr.name, w - 60), ax + 5, y + 3, Palette.alpha(Palette.TEXT, a))
-            if (tr.type.isNotEmpty()) ui.text(ui.fit(tr.type, w - 10, 0.75f), ax + 5 + min(ui.width(tr.name), w - 60) + 5, y + 4, Palette.alpha(Palette.RAID, a), 0.75f)
+            ui.textRight(level, right, y + 3, Palette.alpha(Palette.GOLD, a), 0.75f)
+            right -= ui.width(level, 0.75f) + 4
+            var nx = ax + 5
+            if (tr.defeated) {
+                ui.text("✔", nx, y + 3, Palette.alpha(Palette.GOOD, a0))
+                nx += ui.width("✔") + 3
+            }
+            val nameRoom = max(20, right - nx - 40)
+            ui.text(ui.fit(tr.name, nameRoom), nx, y + 3, Palette.alpha(Palette.TEXT, a))
+            val tagX = nx + min(ui.width(tr.name), nameRoom) + 5
+            val tag = if (tr.next) t("route.next_tag") else tr.type
+            if (tag.isNotEmpty()) ui.text(ui.fit(tag, right - tagX, 0.75f), tagX, y + 4, Palette.alpha(if (tr.next) Palette.GOLD else Palette.RAID, a), 0.75f)
             if (a > 0.6f && tr.members.isNotEmpty()) {
                 val box = min(20, (w - 10) / tr.members.size - 2)
                 for ((j, m) in tr.members.withIndex()) {
@@ -1428,8 +1538,22 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
     /** Time do treinador, quem do seu time responde a cada um, e os melhores counters. */
     private fun trainerDetail(ui: Ui, s: BuilderState, tv: dev.thal.teambuilder.core.TrainerView, top: Int) {
         ui.panel(pad, top, leftWidth, 18, Palette.mix(Palette.CARD, Palette.RAID, 0.10f), Palette.RAID)
-        ui.text(tv.name, pad + 5, top + 5, Palette.TEXT)
-        if (tv.type.isNotEmpty()) ui.text(tv.type, pad + 10 + ui.width(tv.name), top + 6, Palette.RAID, 0.75f)
+        var hx = pad + 5
+        if (tv.defeated) {
+            ui.text("✔", hx, top + 5, Palette.GOOD)
+            hx += ui.width("✔") + 3
+        }
+        ui.text(tv.name, hx, top + 5, Palette.TEXT)
+        hx += ui.width(tv.name) + 5
+        if (tv.type.isNotEmpty()) {
+            ui.text(tv.type, hx, top + 6, Palette.RAID, 0.75f)
+            hx += ui.width(tv.type, 0.75f) + 6
+        }
+        if (tv.readiness >= 0) {
+            val label = t("readiness.label", tv.readiness)
+            ui.text(label, hx, top + 6, readinessColor(tv.readiness), 0.75f)
+            ui.hit(hx - 2, top + 2, ui.width(label, 0.75f) + 4, 14, readinessTip(s, tv))
+        }
         var right = button(ui, pad + leftWidth - 3, top + 3, t("raid.change"), t("trainer.change_tip"), Palette.RAID) {
             trainerId = null
             request()
@@ -1482,11 +1606,42 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
         val w = columnWidth()
         ui.text(t("column.pc_upper"), pad, listTop, Palette.OWNED, 0.75f)
         ui.text(t("column.all_upper"), pad + w + 4, listTop, Palette.CATALOG, 0.75f)
-        counterColumn(ui, "pc", pad, listTop + 9, w, tv.pcPicks)
-        counterColumn(ui, "all", pad + w + 4, listTop + 9, w, tv.allPicks)
+        counterColumn(ui, "pc", pad, listTop + 9, w, tv.pcPicks, tv.enemyLevel)
+        counterColumn(ui, "all", pad + w + 4, listTop + 9, w, tv.allPicks, tv.enemyLevel)
     }
 
-    private fun counterColumn(ui: Ui, column: String, x: Int, top: Int, w: Int, picks: List<dev.thal.teambuilder.core.CounterView>) {
+    private fun readinessColor(p: Int) = when {
+        p >= 70 -> Palette.GOOD
+        p >= 40 -> Palette.GOLD
+        else -> Palette.BAD
+    }
+
+    private fun readinessFormat(p: Int) = when {
+        p >= 70 -> ChatFormatting.GREEN
+        p >= 40 -> ChatFormatting.GOLD
+        else -> ChatFormatting.RED
+    }
+
+    /** O que entra no "% pronto": niveis, quem ficou sem resposta e como melhorar. */
+    private fun readinessTip(s: BuilderState, tv: dev.thal.teambuilder.core.TrainerView): Component {
+        val out = Component.literal(t("readiness.label", tv.readiness)).withStyle(readinessFormat(tv.readiness))
+        out.append("\n").append(Component.literal(t("readiness.how")).withStyle(ChatFormatting.GRAY))
+        if (tv.teamLevel > 0) {
+            val low = tv.teamLevel < tv.enemyLevel
+            out.append("\n\n").append(
+                Component.literal(t("readiness.levels", tv.teamLevel, tv.enemyLevel)).withStyle(if (low) ChatFormatting.RED else ChatFormatting.GREEN)
+            )
+            if (s.levelCap in 1 until tv.enemyLevel) {
+                out.append("\n").append(Component.literal(t("readiness.cap", s.levelCap)).withStyle(ChatFormatting.GOLD))
+            }
+        }
+        if (tv.unanswered.isNotEmpty()) {
+            out.append("\n").append(Component.literal(t("readiness.unanswered", tv.unanswered.joinToString(", "))).withStyle(ChatFormatting.RED))
+        }
+        return out
+    }
+
+    private fun counterColumn(ui: Ui, column: String, x: Int, top: Int, w: Int, picks: List<dev.thal.teambuilder.core.CounterView>, enemyLevel: Int) {
         if (picks.isEmpty()) return empty(ui, x, top, t("empty.no_candidates"))
         val h = 24
         val fits = max(1, (bodyBottom - top + 2) / (h + 2))
@@ -1495,7 +1650,9 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             val tip = Component.literal(p.slot.name).append(Component.literal("  ${p.score}%").withStyle(ChatFormatting.GOLD))
                 .append("\n").append(Component.literal(p.slot.info).withStyle(ChatFormatting.GRAY))
                 .append("\n").append(Component.literal(t("trainer.handles", p.handles.joinToString().ifEmpty { "-" })).withStyle(ChatFormatting.GRAY))
-                .append("\n\n").append(Component.literal(t("tip.click_add")).withStyle(ChatFormatting.DARK_GRAY))
+            val underLevel = p.slot.owned && p.slot.level > 0 && p.slot.level < enemyLevel - 2
+            if (underLevel) tip.append("\n").append(Component.literal(t("counter.low_level", p.slot.level, enemyLevel)).withStyle(ChatFormatting.RED))
+            tip.append("\n\n").append(Component.literal(t("tip.click_add")).withStyle(ChatFormatting.DARK_GRAY))
             val (ax, a, hover) = card(ui, "counter:$column:${p.slot.key}", i, x, y, w, h, accentOf(p.slot), tip) {
                 if (keys.size < 6 && p.slot.key !in keys) {
                     track("first_pick")
@@ -1508,7 +1665,14 @@ class TeamBuilderScreen : Screen(Component.literal("Team Builder")) {
             val tx = ax + 27
             val score = "${p.score}%"
             ui.textRight(score, ax + w - 4, y + 3, Palette.alpha(Palette.RAID, a))
-            ui.text(ui.fit(p.slot.name, w - 34 - ui.width(score)), tx, y + 3, Palette.alpha(accentOf(p.slot), a))
+            var nameRoom = w - 34 - ui.width(score)
+            if (underLevel) {
+                // Nivel abaixo do treinador em vermelho, ao lado da nota.
+                val lv = t("info.level_short", p.slot.level)
+                ui.textRight(lv, ax + w - 8 - ui.width(score), y + 4, Palette.alpha(Palette.BAD, a), 0.75f)
+                nameRoom -= ui.width(lv, 0.75f) + 4
+            }
+            ui.text(ui.fit(p.slot.name, nameRoom), tx, y + 3, Palette.alpha(accentOf(p.slot), a))
             ui.text(ui.fit(t("trainer.handles", p.handles.joinToString().ifEmpty { "-" }), w - 32, 0.75f), tx, y + 13, Palette.alpha(Palette.MUTED, a), 0.75f)
             val barW = w - 31
             val fill = smooth("counterbar:$column:${p.slot.key}", p.score / 100f, 5f)

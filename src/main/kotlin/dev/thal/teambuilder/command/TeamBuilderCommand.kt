@@ -11,6 +11,8 @@ import dev.thal.teambuilder.core.SnapshotBuilder
 import dev.thal.teambuilder.cobblemon.Catalog
 import dev.thal.teambuilder.cobblemon.StorageReader
 import dev.thal.teambuilder.cobblemon.TeamBuilderService
+import dev.thal.teambuilder.cobblemon.Trainers
+import dev.thal.teambuilder.net.OpenPayload
 import dev.thal.teambuilder.core.Breakdown
 import dev.thal.teambuilder.core.BuildOptions
 import dev.thal.teambuilder.core.Format
@@ -37,6 +39,7 @@ import net.minecraft.server.level.ServerPlayer
  *   /teambuilder sets [pokemon...]     golpes, item, natureza e EVs sugeridos
  *   /teambuilder raid [chefe [tipo]]   melhores Pokemon contra o chefe de raid
  *   /teambuilder option legendaries|megas|doubles true|false
+ *   /teambuilder plan <treinador>      abre a tela no plano contra um treinador do RCT
  */
 object TeamBuilderCommand {
 
@@ -61,6 +64,17 @@ object TeamBuilderCommand {
                                 .suggests(suggestNames { Catalog.get().resolver })
                                 .executes { raid(it, StringArgumentType.getString(it, "boss")) }
                         )
+                )
+                .then(
+                    Commands.literal("plan").then(
+                        Commands.argument("trainer", StringArgumentType.greedyString())
+                            .suggests { _, builder ->
+                                val typed = builder.remaining.lowercase()
+                                Trainers.all.keys.filter { it.startsWith(typed) }.sorted().take(50).forEach(builder::suggest)
+                                builder.buildFuture()
+                            }
+                            .executes(::plan)
+                    )
                 )
                 .then(
                     Commands.literal("option")
@@ -94,6 +108,23 @@ object TeamBuilderCommand {
                         .then(names().executes { sets(it, StringArgumentType.getString(it, "pokemon")) })
                 )
         )
+    }
+
+    /** Abre a tela do jogador ja no treinador pedido (usado pelo botao do relatorio de derrota). */
+    private fun plan(ctx: CommandContext<CommandSourceStack>): Int {
+        val player = ctx.source.playerOrException
+        val id = StringArgumentType.getString(ctx, "trainer").trim()
+        val l = ctx.lang()
+        if (id !in Trainers.all) {
+            ctx.source.sendFailure(Component.literal(l.t("trainer.unknown")))
+            return 0
+        }
+        if (!net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.canSend(player, OpenPayload.TYPE)) {
+            ctx.source.sendFailure(Component.literal(l.t("error.no_client")))
+            return 0
+        }
+        net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.send(player, OpenPayload(id))
+        return 1
     }
 
     private fun CommandContext<CommandSourceStack>.lang(): Lang =

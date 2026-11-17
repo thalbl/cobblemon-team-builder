@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.InputConstants
 import dev.thal.teambuilder.core.BuilderState
 import dev.thal.teambuilder.core.SearchResult
 import dev.thal.teambuilder.net.Network
+import dev.thal.teambuilder.net.OpenPayload
 import dev.thal.teambuilder.net.SearchResultPayload
 import dev.thal.teambuilder.net.StatePayload
 import net.fabricmc.api.ClientModInitializer
@@ -34,6 +35,10 @@ object TeamBuilderClient : ClientModInitializer {
         ClientPlayNetworking.registerGlobalReceiver(StatePayload.TYPE) { payload, context ->
             val state = Network.GSON.fromJson(payload.json, BuilderState::class.java)
             (context.client().screen as? TeamBuilderScreen)?.accept(state)
+        }
+
+        ClientPlayNetworking.registerGlobalReceiver(OpenPayload.TYPE) { payload, context ->
+            context.client().setScreen(TeamBuilderScreen(startTrainer = payload.trainer))
         }
 
         ClientPlayNetworking.registerGlobalReceiver(SearchResultPayload.TYPE) { payload, context ->

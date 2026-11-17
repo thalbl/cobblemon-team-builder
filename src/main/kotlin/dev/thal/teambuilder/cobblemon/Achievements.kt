@@ -3,7 +3,6 @@ package dev.thal.teambuilder.cobblemon
 import com.cobblemon.mod.common.api.Priority
 import com.cobblemon.mod.common.api.battles.model.PokemonBattle
 import com.cobblemon.mod.common.api.battles.model.actor.BattleActor
-import com.cobblemon.mod.common.api.battles.model.actor.EntityBackedBattleActor
 import com.cobblemon.mod.common.api.events.CobblemonEvents
 import com.cobblemon.mod.common.api.reactive.SimpleObservable
 import com.cobblemon.mod.common.Cobblemon
@@ -169,7 +168,7 @@ object Achievements {
     // ------------------------------------------------------------ batalhas
 
     private fun onVictory(battle: PokemonBattle, winners: List<BattleActor>, losers: List<BattleActor>) {
-        val trainerId = losers.firstNotNullOfOrNull(::rctTrainerId) ?: return
+        val trainerId = losers.firstNotNullOfOrNull(BattleReports::rctTrainerId) ?: return
         val trainer = Trainers.all[trainerId]
         for (actor in winners) {
             val team = uuidsOf(actor)
@@ -185,14 +184,6 @@ object Achievements {
                 }
             }
         }
-    }
-
-    /** Id do treinador do Radical Cobblemon Trainers por tras do ator, por reflexao. */
-    private fun rctTrainerId(actor: BattleActor): String? {
-        if (!actor.javaClass.name.startsWith("com.gitlab.srcmc")) return null
-        val entity = (actor as? EntityBackedBattleActor<*>)?.entity ?: return null
-        val method = entity.javaClass.methods.firstOrNull { it.name == "getTrainerId" && it.parameterCount == 0 } ?: return null
-        return method.invoke(entity) as? String
     }
 
     /** Fim de raid do Cobblemon Raid Dens (opcional, por reflexao). */

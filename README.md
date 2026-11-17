@@ -128,6 +128,8 @@ As 5 melhores opções para o próximo slot, em duas colunas: **do seu PC** e **
 
 Os tipos aparecem como ícones.
 
+Embaixo da coluna do PC aparecem as **evoluções no seu PC**: Pokémon que você já tem e que, evoluídos, entrariam entre as melhores sugestões (ex.: "seu Machop Nv 20 → Machamp, nível 28, +2,1"). Cada um diz como evoluir (nível, item, troca ou amizade), avisa se o nível passa do seu limite no RCT e considera até duas evoluções à frente. Espécies que você já tem evoluídas não aparecem.
+
 ### Times
 Cinco formas diferentes de completar o time a partir dos slots preenchidos, também do seu PC e de todo o Cobblemon. Clique para usar. Se a tela for baixa, role a coluna com a rodinha do mouse.
 
@@ -155,6 +157,14 @@ Lê os times reais do Radical Cobblemon Trainers: cerca de 1.700 treinadores, in
 - quem do seu time responde melhor a cada Pokémon dele;
 - os melhores counters do seu PC e de todo o Cobblemon, e contra quem cada um é bom;
 - o botão **Montar time do PC**, que coloca os 6 melhores counters que você tem nos slots.
+
+**Rota da liga.** Sem texto na busca, a lista segue o seu progresso no RCT: o **PRÓXIMO** treinador da sua série vem primeiro (com borda dourada), depois os que faltam vencer, do mais fraco ao mais forte, e os já vencidos (✔) no fim. No topo aparecem o seu limite de nível e quantos você já venceu.
+
+**% pronto.** Cada treinador mostra quão pronto o seu time atual está contra ele (verde a partir de 70%, amarelo a partir de 40%). Para cada Pokémon dele, a nota olha se alguém do seu time bate com vantagem, aguenta os golpes dele e está no nível dele. O tooltip mostra o nível médio dos dois lados e quem ficou sem resposta.
+
+**Nível importa.** Os counters do seu PC agora levam o nível do treinador em conta: um Pokémon bem abaixo dele cai na lista e aparece com o nível em vermelho.
+
+**Relatório da derrota.** Ao perder para um líder, Elite 4, campeão, rival ou equipe vilã, o chat mostra quão pronto o time estava, quem ficou sem resposta e a diferença de nível, com um botão **[Ver o plano contra ...]** que abre o Team Builder já nesse treinador (o mesmo que `/teambuilder plan <treinador>`).
 
 | Escolher o treinador | Counters contra o Brock |
 |---|---|
@@ -247,6 +257,7 @@ Tudo da tela também existe por chat:
 | `/teambuilder sets [pokemon...]` | set sugerido de cada membro (do party, se não informar nomes) |
 | `/teambuilder raid [chefe [tipo tera]]` | counters contra o chefe da raid |
 | `/teambuilder option legendaries\|megas\|doubles true\|false` | muda as suas opções |
+| `/teambuilder plan <treinador>` | abre a tela no plano contra um treinador do RCT (id do treinador, com sugestões) |
 
 Comandos de **admin** (exigem permissão, que é configurável):
 

@@ -132,7 +132,19 @@ data class ThreatView(
 )
 
 /** Treinador do RCT numa lista (busca da aba Treinadores). */
-data class TrainerSummary(val id: String, val name: String, val type: String, val level: Int, val members: List<SlotView>)
+data class TrainerSummary(
+    val id: String,
+    val name: String,
+    val type: String,
+    val level: Int,
+    val members: List<SlotView>,
+    /** O jogador ja venceu este treinador (progresso do RCT). */
+    val defeated: Boolean = false,
+    /** Proximo passo da serie do jogador no RCT. */
+    val next: Boolean = false,
+    /** 0..100, quao pronto o time atual esta; -1 sem time. */
+    val readiness: Int = -1,
+)
 
 data class TrainerEnemyView(
     val slot: SlotView,
@@ -154,6 +166,30 @@ data class TrainerView(
     val enemies: List<TrainerEnemyView>,
     val pcPicks: List<CounterView>,
     val allPicks: List<CounterView>,
+    /** 0..100, quao pronto o time atual esta; -1 sem time. */
+    val readiness: Int = -1,
+    /** Nivel medio dos Pokemon do jogador no time e nivel do mais forte do treinador. */
+    val teamLevel: Int = 0,
+    val enemyLevel: Int = 0,
+    /** Adversarios que o time atual nao responde bem. */
+    val unanswered: List<String> = emptyList(),
+    val defeated: Boolean = false,
+    val next: Boolean = false,
+)
+
+/**
+ * Um Pokemon do jogador que, evoluido, entraria bem no time.
+ *
+ * @param method "lv:28", "item:cobblemon:thunder_stone", "trade", "friendship" ou "other"
+ * @param stages quantas evolucoes ate la (Machop -> Machamp = 2)
+ */
+data class EvolutionView(
+    val from: SlotView,
+    val to: SlotView,
+    val gain: Double,
+    val reasons: List<String>,
+    val method: String,
+    val stages: Int,
 )
 
 data class PickView(val slot: SlotView, val gain: Double, val reasons: List<String>)
@@ -235,14 +271,26 @@ data class BuilderState(
     val notice: String? = null,
     /** Ids das conquistas que o jogador ja tem (ver [AchievementList]). */
     val achievements: List<String> = emptyList(),
+    /** Pokemon do PC que valeria evoluir para o time atual. */
+    val evolutions: List<EvolutionView> = emptyList(),
+    /** Limite de nivel do RCT para o jogador (0 = desconhecido). */
+    val levelCap: Int = 0,
 )
 
 /** Busca por nome enquanto o jogador digita. */
-data class SearchRequest(val query: String = "", val kind: String = "pokemon")
+data class SearchRequest(
+    val query: String = "",
+    val kind: String = "pokemon",
+    /** Time atual, para a busca de treinadores dizer quao pronto ele esta contra cada um. */
+    val keys: List<String> = emptyList(),
+)
 
 data class SearchResult(
     val query: String = "",
     val results: List<SlotView> = emptyList(),
     val kind: String = "pokemon",
     val trainers: List<TrainerSummary> = emptyList(),
+    /** Progresso do RCT: limite de nivel e quantos treinadores ja vencidos (0 sem RCT). */
+    val levelCap: Int = 0,
+    val defeatedCount: Int = 0,
 )

@@ -19,6 +19,23 @@ data class CounterPick(
 )
 
 /**
+ * Quanto o time esta pronto para um treinador.
+ *
+ * @param percent 0..100, media de [coverage]
+ * @param coverage para cada adversario, 0..1: quao bem o melhor membro do time o enfrenta
+ * @param teamLevel nivel medio dos Pokemon do jogador no time (0 se nao ha nenhum)
+ * @param enemyLevel nivel do Pokemon mais forte do treinador
+ */
+data class Readiness(val percent: Int, val coverage: List<Double>, val teamLevel: Int, val enemyLevel: Int) {
+    /** Adversarios que o time nao responde bem. */
+    val unanswered: List<Int> get() = coverage.indices.filter { coverage[it] < WEAK }
+
+    companion object {
+        const val WEAK = 0.35
+    }
+}
+
+/**
  * Escolhe counters contra um time inteiro (ginasios, Elite 4, campeoes). Cada candidato e
  * comparado a cada adversario como numa raid; a nota final e a media de quanto ele rende
  * contra cada um, em relacao ao melhor candidato para aquele adversario.
@@ -33,7 +50,43 @@ class BattleAdvisor(private val raids: RaidAdvisor) {
     /** Matriz [candidato][adversario] com o valor bruto de cada confronto. */
     private fun values(enemies: List<EnemyMon>, pool: List<Profile>): Array<DoubleArray> {
         val bosses = enemies.map(::asBoss)
-        return Array(pool.size) { i -> DoubleArray(bosses.size) { j -> raids.matchup(bosses[j], pool[i])?.first ?: 0.0 } }
+        return Array(pool.size) { i -> DoubleArray(bosses.size) { j -> raids.matchup(bosses[j], pool[i], enemies[j].level)?.first ?: 0.0 } }
+    }
+
+    /**
+     * Cobertura de um adversario por um membro: golpe que ele tem contra o adversario, o pior que
+     * leva dele e a diferenca de nivel. Valores absolutos (nao relativos ao melhor do PC), para
+     * dizer "pronto" ou "nao pronto" mesmo quando nenhum Pokemon do jogador serve.
+     */
+    private fun coverage(e: EnemyMon, p: Profile): Double {
+        val pick = raids.matchup(asBoss(e), p, e.level)?.second ?: return 0.0
+        val offense = when {
+            pick.effectiveness >= 2.0 -> 1.0
+            pick.effectiveness >= 1.0 -> 0.65
+            pick.effectiveness > 0.0 -> 0.3
+            else -> 0.0
+        }
+        val defense = when {
+            pick.worstTaken <= 0.5 -> 1.0
+            pick.worstTaken <= 1.0 -> 0.8
+            pick.worstTaken <= 2.0 -> 0.5
+            else -> 0.25
+        }
+        val level = p.candidate.owned?.level ?: e.level
+        val ratio = if (e.level > 0) (level.toDouble() / e.level).coerceAtMost(1.0) else 1.0
+        return offense * defense * ratio * ratio
+    }
+
+    fun readiness(enemies: List<EnemyMon>, team: List<Profile>): Readiness? {
+        if (enemies.isEmpty() || team.isEmpty()) return null
+        val coverage = enemies.map { e -> team.maxOf { coverage(e, it) } }
+        val levels = team.mapNotNull { it.candidate.owned?.level }
+        return Readiness(
+            percent = (100 * coverage.average()).toInt(),
+            coverage = coverage,
+            teamLevel = if (levels.isEmpty()) 0 else levels.average().toInt(),
+            enemyLevel = enemies.maxOf { it.level },
+        )
     }
 
     fun rank(enemies: List<EnemyMon>, pool: Collection<Profile>, limit: Int = 6): List<CounterPick> {

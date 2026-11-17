@@ -69,6 +69,7 @@ class Catalog private constructor(
 
         fun invalidate() {
             cached.clear()
+            Evolutions.clear()
         }
 
         private fun build(format: Format): Catalog {

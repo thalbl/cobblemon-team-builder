@@ -9,6 +9,7 @@ import dev.thal.teambuilder.core.CoreView
 import dev.thal.teambuilder.core.Cores
 import dev.thal.teambuilder.core.PairView
 import dev.thal.teambuilder.core.CounterView
+import dev.thal.teambuilder.core.EvolutionView
 import dev.thal.teambuilder.core.MoveStatus
 import dev.thal.teambuilder.core.ThreatView
 import dev.thal.teambuilder.core.TrainerEnemyView
@@ -208,7 +209,8 @@ object TeamBuilderService {
             if (boss != null) raid = raidView(s, boss) else error = problem
         }
 
-        val trainer = request.trainer?.let { trainerView(s, team, it) }
+        val progress = RctProgress.of(player)
+        val trainer = request.trainer?.let { trainerView(s, team, it, progress) }
         if (request.trainer != null && trainer == null) error = lang.t("trainer.unknown")
 
         val engine = s.engine
@@ -241,6 +243,9 @@ object TeamBuilderService {
             if (full || !normal) emptyList()
             else engine.suggestNext(team, pool, 5).map { PickView(slot(it.pick, s), it.gain, it.reasons) }
 
+        val pcPicks = picks(s.owned)
+        val evolutions = if (full || !normal) emptyList() else evolutionViews(s, team, pcPicks.lastOrNull()?.gain ?: 0.0)
+
         val chosen = team.map { chosenByKey[key(it)] ?: chosenByKey[baseKey(it, s)] }
         val sets = teamSets(s, team, chosen, inventory(player))
         // Duplas do 2v2, com os golpes dos sets sugeridos.
@@ -256,7 +261,7 @@ object TeamBuilderService {
                 val (weak, resist) = s.catalog.scorer.exposure(team, i)
                 TypeBalanceView(type, weak, resist, team.map { it.defense[i] })
             },
-            pcPicks = picks(s.owned), allPicks = picks(everything),
+            pcPicks = pcPicks, allPicks = picks(everything),
             pcTeams = teams(s.owned), allTeams = teams(everything),
             pcSwaps = swaps(s.owned), allSwaps = swaps(everything),
             ownedCount = s.real.size,
@@ -274,7 +279,41 @@ object TeamBuilderService {
             trainer = trainer,
             error = error,
             notice = notice,
+            evolutions = evolutions,
+            levelCap = progress?.levelCap ?: 0,
         )
+    }
+
+    // -------------------------------------------------------------- evolucoes
+
+    /**
+     * Pokemon do PC cuja evolucao entraria entre as melhores sugestoes: o ganho tem que passar
+     * [threshold] (o da ultima sugestao do PC). Ignora especies que o jogador ja tem evoluidas.
+     */
+    private fun evolutionViews(s: Session, team: List<Profile>, threshold: Double): List<EvolutionView> {
+        val ownedSpecies = s.real.mapTo(HashSet()) { it.speciesId }
+        val teamSpecies = team.mapTo(HashSet()) { it.speciesId }
+        // Forma final -> (Pokemon do jogador, etapa); fica o exemplar de maior nivel.
+        val targets = LinkedHashMap<String, Pair<Profile, Evolutions.Step>>()
+        for (p in s.real) {
+            val mine = p.candidate.owned ?: continue
+            if (p.speciesId in teamSpecies) continue
+            for (step in Evolutions.of(mine)) {
+                val target = s.catalog.all[step.formId] ?: continue
+                if (target.speciesId in ownedSpecies || target.speciesId in teamSpecies) continue
+                val current = targets[step.formId]
+                if (current == null || (current.first.candidate.owned?.level ?: 0) < mine.level) targets[step.formId] = p to step
+            }
+        }
+        if (targets.isEmpty()) return emptyList()
+        val pool = targets.keys.mapNotNull { s.catalog.all[it] }
+        return s.engine.suggestNext(team, pool, pool.size)
+            .filter { it.gain > 0 && it.gain >= threshold }
+            .take(3)
+            .mapNotNull { sug ->
+                val (from, step) = targets[sug.pick.id] ?: return@mapNotNull null
+                EvolutionView(slot(from, s), slot(sug.pick, s), sug.gain, sug.reasons, step.method, step.stages)
+            }
     }
 
     /**
@@ -380,7 +419,7 @@ object TeamBuilderService {
 
     // ------------------------------------------------------------ treinadores
 
-    private fun trainerView(s: Session, team: List<Profile>, id: String): TrainerView? {
+    private fun trainerView(s: Session, team: List<Profile>, id: String, progress: RctProgress.Progress?): TrainerView? {
         val t = Trainers.all[id] ?: return null
         val enemies = t.team.mapNotNull { m -> Trainers.enemy(m, s.catalog) }
         val battles = s.catalog.battles
@@ -400,22 +439,53 @@ object TeamBuilderService {
                 )
             },
             pcPicks = picks(s.owned), allPicks = picks(s.catalog.all.values),
-        )
+            defeated = progress?.defeated?.contains(t.id) == true,
+            next = progress?.next?.contains(t.id) == true,
+            enemyLevel = t.maxLevel,
+        ).let { view ->
+            val r = battles.readiness(enemies, team) ?: return@let view
+            view.copy(
+                readiness = r.percent, teamLevel = r.teamLevel, enemyLevel = r.enemyLevel,
+                unanswered = r.unanswered.map { enemies[it].profile.name },
+            )
+        }
     }
 
     /** Treinadores que combinam com o texto (ou os importantes, sem texto), com o time em miniatura. */
-    fun searchTrainers(player: ServerPlayer, query: String): SearchResult {
-        val catalog = Catalog.get(options(player).format)
-        val trainers = Trainers.search(query).map { t ->
+    /**
+     * Treinadores que combinam com o texto, com o time em miniatura e quao pronto o time atual
+     * ([keys]) esta contra cada um. Sem texto, segue a rota: os proximos da serie do RCT primeiro,
+     * depois os que faltam vencer (do mais fraco ao mais forte) e os ja vencidos no fim.
+     */
+    fun searchTrainers(player: ServerPlayer, query: String, keys: List<String> = emptyList()): SearchResult {
+        val s = session(player)
+        val team = keys.mapNotNull(s::byKey)
+        val progress = RctProgress.of(player)
+        val defeated = progress?.defeated.orEmpty()
+        val next = progress?.next.orEmpty()
+        var list = Trainers.search(query)
+        if (query.isBlank() && progress != null) {
+            list = list.sortedWith(
+                compareBy<Trainer>({ if (it.id in next) 0 else if (it.id in defeated) 2 else 1 }, { it.maxLevel }, { it.name })
+            )
+        }
+        val trainers = list.map { t ->
+            val enemies = t.team.mapNotNull { m -> Trainers.enemy(m, s.catalog) }
             TrainerSummary(
                 t.id, t.name, t.typeLabel, t.maxLevel,
-                t.team.mapNotNull { m -> Trainers.enemy(m, catalog) }.map { e ->
+                enemies.map { e ->
                     val c = e.profile.candidate
                     SlotView("", e.profile.name, c.types, emptyList(), false, e.level, c.species, c.aspects.toList())
                 },
+                defeated = t.id in defeated,
+                next = t.id in next,
+                readiness = s.catalog.battles.readiness(enemies, team)?.percent ?: -1,
             )
         }
-        return SearchResult(query, kind = "trainer", trainers = trainers)
+        return SearchResult(
+            query, kind = "trainer", trainers = trainers,
+            levelCap = progress?.levelCap ?: 0, defeatedCount = defeated.count { it in Trainers.all },
+        )
     }
 
     fun setView(

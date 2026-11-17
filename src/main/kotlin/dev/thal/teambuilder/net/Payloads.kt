@@ -92,6 +92,21 @@ class TrackPayload(val event: String) : CustomPacketPayload {
     }
 }
 
+/** Servidor -> cliente: abre a tela ja num treinador (botao do relatorio de derrota). */
+class OpenPayload(val trainer: String) : CustomPacketPayload {
+    override fun type() = TYPE
+
+    companion object {
+        val TYPE = CustomPacketPayload.Type<OpenPayload>(
+            ResourceLocation.fromNamespaceAndPath(TeamBuilderMod.MOD_ID, "open")
+        )
+        val CODEC: StreamCodec<RegistryFriendlyByteBuf, OpenPayload> = StreamCodec.of(
+            { buf, p -> buf.writeUtf(p.trainer, 200) },
+            { buf -> OpenPayload(buf.readUtf(200)) },
+        )
+    }
+}
+
 object Network {
     val GSON = Gson()
 
@@ -102,6 +117,7 @@ object Network {
         PayloadTypeRegistry.playC2S().register(SearchPayload.TYPE, SearchPayload.CODEC)
         PayloadTypeRegistry.playS2C().register(SearchResultPayload.TYPE, SearchResultPayload.CODEC)
         PayloadTypeRegistry.playC2S().register(TrackPayload.TYPE, TrackPayload.CODEC)
+        PayloadTypeRegistry.playS2C().register(OpenPayload.TYPE, OpenPayload.CODEC)
 
         ServerPlayNetworking.registerGlobalReceiver(TrackPayload.TYPE) { payload, context ->
             try {
@@ -116,7 +132,9 @@ object Network {
             val result = try {
                 val request = GSON.fromJson(payload.json, SearchRequest::class.java)
                 val query = request.query.orEmpty().take(40)
-                if (request.kind == "trainer") TeamBuilderService.searchTrainers(player, query)
+                if (request.kind == "trainer") {
+                    TeamBuilderService.searchTrainers(player, query, request.keys.orEmpty().take(TeamBuilderService.TEAM_SIZE))
+                }
                 else TeamBuilderService.search(player, query)
             } catch (e: Exception) {
                 TeamBuilderMod.LOGGER.error("Falha na busca de {}", player.gameProfile.name, e)
