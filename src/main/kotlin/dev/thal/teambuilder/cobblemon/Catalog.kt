@@ -70,6 +70,7 @@ class Catalog private constructor(
         fun invalidate() {
             cached.clear()
             Evolutions.clear()
+            SpawnIndex.invalidate()
         }
 
         private fun build(format: Format): Catalog {

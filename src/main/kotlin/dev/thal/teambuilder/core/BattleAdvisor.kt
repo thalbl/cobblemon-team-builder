@@ -11,6 +11,9 @@ data class EnemyMon(
     /** IV e EV de velocidade do treinador (o RCT costuma definir; sem dado, IV 31 e EV 0). */
     val speIv: Int = 31,
     val speEv: Int = 0,
+    /** IVs e EVs completos, quando o treinador define (para a estimativa de dano). */
+    val ivs: Map<StatKey, Int> = emptyMap(),
+    val evs: Map<StatKey, Int> = emptyMap(),
 )
 
 data class CounterPick(

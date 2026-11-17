@@ -9,6 +9,11 @@ import dev.thal.teambuilder.core.CoreView
 import dev.thal.teambuilder.core.Cores
 import dev.thal.teambuilder.core.PairView
 import dev.thal.teambuilder.core.CounterView
+import dev.thal.teambuilder.core.DamageCalc
+import dev.thal.teambuilder.core.DamageView
+import dev.thal.teambuilder.core.SpawnBiomeView
+import dev.thal.teambuilder.core.SpawnChanceView
+import dev.thal.teambuilder.core.SpawnView
 import dev.thal.teambuilder.core.RaidGroupAdvisor
 import dev.thal.teambuilder.core.RaidMember
 import dev.thal.teambuilder.core.RaidRoleView
@@ -86,7 +91,11 @@ object TeamBuilderService {
     /** Idioma do cliente do jogador (portugues ou ingles). */
     fun lang(player: ServerPlayer): Lang = Lang.of(runCatching { player.clientInformation().language() }.getOrNull())
 
-    class Session(val catalog: Catalog, val owned: List<Profile>, val options: BuildOptions, val lang: Lang) {
+    class Session(
+        val catalog: Catalog, val owned: List<Profile>, val options: BuildOptions, val lang: Lang,
+        /** Bioma e hora do jogador, para a chance de spawn das especies que ele nao tem. */
+        val biome: String = "", val dayTime: Int? = null,
+    ) {
         val engine: TeamBuilderEngine = catalog.engine(options, lang)
 
         /** Pokemon reais do jogador, sem as variantes mega. */
@@ -133,7 +142,8 @@ object TeamBuilderService {
                 )
             }
         }
-        return Session(catalog, owned, options, lang(player))
+        val (biome, time) = runCatching { SpawnIndex.where(player) }.getOrDefault("" to 0)
+        return Session(catalog, owned, options, lang(player), biome, time)
     }
 
     // ------------------------------------------------------------------ raid
@@ -456,6 +466,7 @@ object TeamBuilderService {
         val enemies = t.team.mapNotNull { m -> Trainers.enemy(m, s.catalog) }
         val battles = s.catalog.battles
         val answers = battles.answers(enemies, team)
+        val damage = DamageCalc(s.catalog.moves)
         fun picks(pool: Collection<Profile>) = battles.rank(enemies, pool.filter(s.engine::allowed), 6).map { c ->
             CounterView(slot(c.pick, s), c.score, c.handles.map { enemies[it].profile.name })
         }
@@ -473,7 +484,17 @@ object TeamBuilderService {
                     val speed = Speed.of(e)
                     val mine = team.map { it to Speed.of(it, e.level) }
                     val answer = answers[i]?.first
+                    // Dano estimado nos dois sentidos: o time nele, e ele na resposta.
+                    val foe = damage.fighter(e)
+                    val dealt = team.mapNotNull { p ->
+                        damage.best(damage.fighter(p, e.level), foe)?.let { DamageView(p.name, e.profile.name, it.move, it.min, it.max) }
+                    }.sortedByDescending { it.max }.take(3)
+                    val taken = answer?.let { a ->
+                        damage.best(foe, damage.fighter(a, e.level))?.let { DamageView(e.profile.name, a.name, it.move, it.min, it.max) }
+                    }
                     view.copy(
+                        dealt = dealt,
+                        taken = taken,
                         speed = speed,
                         faster = mine.filter { it.second > speed }.sortedByDescending { it.second }.map { "${it.first.name} ${it.second}" },
                         slower = mine.filter { it.second <= speed }.sortedByDescending { it.second }.map { "${it.first.name} ${it.second}" },
@@ -652,7 +673,38 @@ object TeamBuilderService {
         forms = if (withForms) forms(p, s) else emptyList(),
         inParty = p.candidate.owned?.source == Source.PARTY,
         ability = p.ability,
+        spawn = if (p.isOwned || s.biome.isEmpty()) null else spawnView(p, s),
     )
+
+    /** Onde capturar [p]: chance agora no bioma do jogador e os biomas onde mais aparece. */
+    private fun spawnView(p: Profile, s: Session): SpawnView? {
+        if (p.isMega) return SpawnView(natural = false, biome = s.biome)
+        return try {
+            val table = SpawnIndex.get()
+            val mine = table.of(p.id, p.speciesId)
+            if (mine.isEmpty()) return SpawnView(natural = false, biome = s.biome)
+            val here = mine.map { it.type }.distinct().mapNotNull { type ->
+                table.chance(mine, s.biome, type, s.dayTime).takeIf { it > 0 }?.let { SpawnChanceView(type, it) }
+            }.sortedByDescending { it.chance }
+            val rarest = listOf("ultra-rare", "rare", "uncommon", "common")
+            SpawnView(
+                biome = s.biome,
+                here = here,
+                otherTime = here.isEmpty() && mine.any { it.inBiome(s.biome) },
+                best = table.bestBiomes(mine).map { SpawnBiomeView(it.first, it.second, it.third) },
+                biomeCount = mine.filter { !it.anyBiome }.flatMapTo(HashSet()) { it.biomes }.size,
+                anywhere = mine.any { it.anyBiome },
+                minLevel = mine.minOf { it.minLevel },
+                maxLevel = mine.maxOf { it.maxLevel },
+                // A raridade mais comum entre as regras dela.
+                bucket = mine.map { it.bucket }.distinct().minByOrNull { b -> rarest.indexOf(b).let { if (it < 0) 99 else -it } }.orEmpty(),
+                times = if (mine.all { it.timeName.isNotEmpty() }) mine.map { it.timeName }.distinct() else emptyList(),
+            )
+        } catch (e: Throwable) {
+            dev.thal.teambuilder.TeamBuilderMod.LOGGER.debug("Spawn de {} falhou", p.id, e)
+            null
+        }
+    }
 
     /** Forma normal + megas da especie, para alternar direto no slot. */
     private fun forms(p: Profile, s: Session): List<FormView> {

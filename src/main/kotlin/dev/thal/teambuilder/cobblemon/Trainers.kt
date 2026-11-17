@@ -7,6 +7,7 @@ import dev.thal.teambuilder.TeamBuilderMod
 import dev.thal.teambuilder.cobblemon.StorageReader.showdownId
 import dev.thal.teambuilder.core.EnemyMon
 import dev.thal.teambuilder.core.NameResolver
+import dev.thal.teambuilder.core.StatKey
 import net.minecraft.server.packs.resources.ResourceManager
 
 /** Um Pokemon do time de um treinador, como esta no datapack. */
@@ -21,6 +22,8 @@ data class TrainerMon(
     val nature: String,
     val speIv: Int = 31,
     val speEv: Int = 0,
+    val ivs: Map<StatKey, Int> = emptyMap(),
+    val evs: Map<StatKey, Int> = emptyMap(),
 )
 
 data class Trainer(
@@ -79,6 +82,14 @@ object Trainers {
         return (o["literal"] ?: o["text"] ?: o["translate"])?.asString ?: fallback
     }
 
+    /** {"hp": 31, "spe": 31...} -> mapa por atributo. */
+    private fun stats(o: JsonObject?): Map<StatKey, Int> {
+        if (o == null) return emptyMap()
+        return o.entrySet().mapNotNull { (k, v) ->
+            StatKey.fromShowdownId(k.lowercase())?.let { key -> runCatching { key to v.asInt }.getOrNull() }
+        }.toMap()
+    }
+
     private fun strings(el: JsonElement?): List<String> = when {
         el == null || el.isJsonNull -> emptyList()
         el.isJsonArray -> el.asJsonArray.mapNotNull { runCatching { it.asString }.getOrNull() }
@@ -104,6 +115,8 @@ object Trainers {
                     nature = m["nature"]?.asString.orEmpty(),
                     speIv = m.getAsJsonObject("ivs")?.get("spe")?.asInt ?: 31,
                     speEv = m.getAsJsonObject("evs")?.get("spe")?.asInt ?: 0,
+                    ivs = stats(m.getAsJsonObject("ivs")),
+                    evs = stats(m.getAsJsonObject("evs")),
                 )
             }.orEmpty()
             if (team.isEmpty()) continue
@@ -131,7 +144,7 @@ object Trainers {
             }
             (bySuffix ?: megas.firstOrNull())?.let { profile = it }
         }
-        return EnemyMon(profile, m.level, m.moves, m.ability, m.item, m.nature, m.speIv, m.speEv)
+        return EnemyMon(profile, m.level, m.moves, m.ability, m.item, m.nature, m.speIv, m.speEv, m.ivs, m.evs)
     }
 
     /** Busca por nome, id ou tipo; sem texto, os treinadores importantes do mais fraco ao mais forte. */

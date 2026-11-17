@@ -13,6 +13,7 @@ import dev.thal.teambuilder.core.SearchRequest
 import dev.thal.teambuilder.core.SearchResult
 import dev.thal.teambuilder.core.SetView
 import dev.thal.teambuilder.core.SlotView
+import dev.thal.teambuilder.core.SpawnView
 import dev.thal.teambuilder.core.SwapView
 import dev.thal.teambuilder.core.TeamView
 import dev.thal.teambuilder.net.Network
@@ -127,6 +128,8 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
     private var tourAt = 0L
     /** Abas cuja dica faz parte do tour atual; "main" quando inclui o tour geral. */
     private var tourParts: List<String> = emptyList()
+    /** O tour atual mostra uma dica que mudou desde a ultima vez. */
+    private var tourNews = false
     private var showAchievements = false
     private var achievementsAt = 0L
     /** Conquistas pedidas por esta tela que o servidor ainda nao confirmou. */
@@ -460,7 +463,13 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
         anchors[name] = intArrayOf(x, y, w, h)
     }
 
-    /** Abre o tour sozinho: o geral na primeira vez, e a dica de cada aba na primeira visita. */
+    /** Dica da parte da tela aberta agora: a aba, ou a tela de um treinador ja escolhido. */
+    private fun tipKey(): String = if (tab == Tab.TRAINERS && state?.trainer != null) "TRAINER_DETAIL" else tab.name
+
+    /**
+     * Abre o tour sozinho: o geral na primeira vez, e a dica de cada aba na primeira visita.
+     * Uma dica que mudou desde a ultima vez (recurso novo) aparece de novo, marcada como novidade.
+     */
     private fun maybeStartTour(s: BuilderState) {
         if (tour.isNotEmpty() || showAchievements || waiting) return
         if (!ClientPrefs.tutorialDone) {
@@ -469,14 +478,18 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
         }
         // A analise de um time vazio nao tem o que mostrar: a dica espera o primeiro Pokemon.
         if (tab == Tab.ANALYSIS && s.team.isEmpty()) return
-        if (!ClientPrefs.tabSeen(tab.name)) startTour(full = false)
+        val key = tipKey()
+        if (ClientPrefs.seenVersion(key) < TutorialSteps.version(key)) startTour(full = false)
     }
 
     /** [full] = tour geral + dica da aba atual (botao ?); senao so a dica da aba. */
     private fun startTour(full: Boolean) {
-        val tabSteps = TutorialSteps.forTab(tab.name)
+        val key = tipKey()
+        val tabSteps = TutorialSteps.forTab(key)
         tour = if (full) TutorialSteps.main + tabSteps else tabSteps
-        tourParts = if (full) listOf("main", tab.name) else listOf(tab.name)
+        tourParts = if (full) listOf("main", key) else listOf(key)
+        // So a dica de uma aba ja vista antes (numa versao mais velha) conta como novidade.
+        tourNews = !full && ClientPrefs.seenVersion(key) > 0
         tourStep = 0
         tourAt = now()
         showAchievements = false
@@ -487,7 +500,7 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
 
     private fun endTour(completed: Boolean) {
         for (part in tourParts) {
-            if (part == "main") ClientPrefs.tutorialDone = true else ClientPrefs.markTab(part)
+            if (part == "main") ClientPrefs.tutorialDone = true else ClientPrefs.markTab(part, TutorialSteps.version(part))
         }
         if (completed && "main" in tourParts) track("tutorial")
         tour = emptyList()
@@ -530,7 +543,7 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
 
         // Balao: abaixo da area se couber, senao acima, senao no centro.
         val bw = min(240, width - 24)
-        val title = t("tutorial.${step.key}.title")
+        val title = (if (tourNews) t("tutorial.news") + " · " else "") + t("tutorial.${step.key}.title")
         val lines = font.split(Component.literal(t("tutorial.${step.key}.text")), bw - 14)
         val bh = 24 + lines.size * 10 + 18
         val bx: Int
@@ -823,7 +836,7 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
             val roleText = set?.roleLabel?.takeIf { it.isNotEmpty() } ?: slot.roles.take(2).joinToString(", ")
             ui.text(ui.fit(roleText, w - 36, 0.75f), tx, y + 28, if (set != null) Palette.CYAN else Palette.MUTED, 0.75f)
 
-            ui.hit(x, y, w, h, slotTooltip(slot, set)) { selected = i }
+            ui.hit(x, y, w, h, withSpawn(slotTooltip(slot, set), slot)) { selected = i }
 
             // X de remover, visivel ao passar o mouse.
             val closeOver = ui.over(x + w - 10, y + 1, 9, 9)
@@ -927,6 +940,81 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
 
     private fun empty(ui: Ui, x: Int, y: Int, text: String) = ui.text(text, x + 2, y + 4, Palette.FAINT, 0.75f)
 
+    // ------------------------------------------------------------ onde capturar
+
+    private fun pct(chance: Double): String {
+        val locale = if (lang.code == "pt_br") java.util.Locale.forLanguageTag("pt-BR") else java.util.Locale.US
+        val v = chance * 100
+        return if (v < 0.1) "<" + String.format(locale, "%.1f", 0.1) + "%" else String.format(locale, "%.1f", v) + "%"
+    }
+
+    private fun biomeName(id: String): MutableComponent {
+        val rl = net.minecraft.resources.ResourceLocation.tryParse(id) ?: return Component.literal(id)
+        return Component.translatable("biome.${rl.namespace}.${rl.path}")
+    }
+
+    private fun placeName(type: String) = if (lang.has("spawn.type.$type")) t("spawn.type.$type") else type
+
+    /** "aqui 2,1%": chance de aparecer agora no bioma do jogador; null se nao aparece. */
+    private fun hereBadge(slot: SlotView): String? {
+        val best = slot.spawn?.here?.maxOfOrNull { it.chance } ?: return null
+        return t("spawn.badge", pct(best))
+    }
+
+    /** Desenha o selo [hereBadge] alinhado a direita em [right]; devolve quanto espaco ocupou. */
+    private fun drawHereBadge(ui: Ui, slot: SlotView, right: Int, y: Int, alpha: Float): Int {
+        val badge = hereBadge(slot) ?: return 0
+        ui.textRight(badge, right, y + 1, Palette.alpha(Palette.CYAN, alpha), 0.75f)
+        return ui.width(badge, 0.75f) + 4
+    }
+
+    /** Bloco "Onde capturar" do tooltip: chance agora aqui, melhores biomas, nivel, raridade e horario. */
+    private fun spawnTip(sp: SpawnView): Component {
+        val out = Component.literal(t("spawn.title")).withStyle(ChatFormatting.GOLD)
+        if (!sp.natural) {
+            return out.append("\n").append(Component.literal(t("spawn.not_natural")).withStyle(ChatFormatting.GRAY))
+        }
+        val here = Component.literal(t("spawn.here") + " ").withStyle(ChatFormatting.GRAY)
+            .append(biomeName(sp.biome).withStyle(ChatFormatting.WHITE))
+            .append(Component.literal(": ").withStyle(ChatFormatting.GRAY))
+        when {
+            sp.here.isNotEmpty() -> sp.here.forEachIndexed { i, h ->
+                if (i > 0) here.append(Component.literal(", ").withStyle(ChatFormatting.DARK_GRAY))
+                here.append(Component.literal(pct(h.chance)).withStyle(ChatFormatting.GREEN))
+                    .append(Component.literal(" " + placeName(h.type)).withStyle(ChatFormatting.GRAY))
+            }
+            sp.otherTime -> here.append(Component.literal(t("spawn.other_time")).withStyle(ChatFormatting.GOLD))
+            else -> here.append(Component.literal(t("spawn.not_here")).withStyle(ChatFormatting.RED))
+        }
+        out.append("\n").append(here)
+        if (sp.best.isNotEmpty()) {
+            val best = Component.literal(t("spawn.best") + " ").withStyle(ChatFormatting.GRAY)
+            sp.best.forEachIndexed { i, b ->
+                if (i > 0) best.append(Component.literal(", ").withStyle(ChatFormatting.DARK_GRAY))
+                best.append(biomeName(b.biome).withStyle(ChatFormatting.WHITE))
+                    .append(Component.literal(" " + pct(b.chance)).withStyle(ChatFormatting.AQUA))
+            }
+            val more = sp.biomeCount - sp.best.size
+            if (more > 0) best.append(Component.literal(" " + t("spawn.more", more)).withStyle(ChatFormatting.DARK_GRAY))
+            out.append("\n").append(best)
+        } else if (sp.anywhere) {
+            out.append("\n").append(Component.literal(t("spawn.anywhere")).withStyle(ChatFormatting.GRAY))
+        }
+        val details = ArrayList<String>()
+        if (sp.maxLevel > 0) details += if (sp.minLevel == sp.maxLevel) t("spawn.level_one", sp.minLevel) else t("spawn.levels", sp.minLevel, sp.maxLevel)
+        if (sp.bucket.isNotEmpty()) details += if (lang.has("spawn.bucket.${sp.bucket}")) t("spawn.bucket.${sp.bucket}") else sp.bucket
+        if (sp.times.isNotEmpty()) details += t("spawn.only", sp.times.joinToString("/") { if (lang.has("spawn.time.$it")) t("spawn.time.$it") else it })
+        if (details.isNotEmpty()) out.append("\n").append(Component.literal(details.joinToString(" · ")).withStyle(ChatFormatting.DARK_GRAY))
+        return out
+    }
+
+    /** Acrescenta o bloco "Onde capturar" ao tooltip de uma especie que o jogador nao tem. */
+    private fun withSpawn(tip: Component?, slot: SlotView): Component? {
+        val sp = slot.spawn ?: return tip
+        if (tip == null) return spawnTip(sp)
+        return tip.copy().append("\n\n").append(spawnTip(sp))
+    }
+
     private fun reasonsTip(title: MutableComponent, info: String, reasons: List<String>, hint: String): Component {
         if (info.isNotEmpty()) title.append("\n").append(Component.literal(info).withStyle(ChatFormatting.GRAY))
         for (reason in reasons) title.append("\n").append(Component.literal("- ").withStyle(ChatFormatting.GRAY)).append(SetText.rich(reason, ChatFormatting.GRAY))
@@ -1019,7 +1107,7 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
                 Component.literal(p.slot.name).append(Component.literal("  +%.1f".format(p.gain)).withStyle(ChatFormatting.GREEN)),
                 p.slot.info, p.reasons, t("tip.click_add"),
             )
-            val (ax, a, hover) = card(ui, "$column:${p.slot.key}", i, x, y, w, h, accentOf(p.slot), tip) {
+            val (ax, a, hover) = card(ui, "$column:${p.slot.key}", i, x, y, w, h, accentOf(p.slot), withSpawn(tip, p.slot)) {
                 track("first_pick")
                 request(keys = keys + p.slot.key)
             }
@@ -1030,7 +1118,8 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
             val tx = ax + box + 7
             val gain = "+%.1f".format(p.gain)
             ui.textRight(gain, ax + w - 4, y + 3, Palette.alpha(Palette.GOOD, a))
-            ui.text(ui.fit(p.slot.name, w - box - 12 - ui.width(gain)), tx, y + 3, Palette.alpha(accentOf(p.slot), a))
+            val badgeW = drawHereBadge(ui, p.slot, ax + w - 8 - ui.width(gain), y + 3, a)
+            ui.text(ui.fit(p.slot.name, w - box - 12 - ui.width(gain) - badgeW), tx, y + 3, Palette.alpha(accentOf(p.slot), a))
             typeIcons(ui, p.slot.types, p.slot.ability, p.slot.name, tx, y + 13, a)
             if (h >= 29) {
                 ui.rich(p.reasons.firstOrNull().orEmpty(), tx + 22, y + 15, Palette.alpha(Palette.MUTED, a), 0.75f, w - box - 10 - 22)
@@ -1526,7 +1615,7 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
         val full = keys.size >= 6
         for ((i, p) in picks.take(fits).withIndex()) {
             val y = top + i * (h + 2)
-            val (ax, a, hover) = card(ui, "raid:$column:${p.slot.key}", i, x, y, w, h, accentOf(p.slot), SetText.raidPickTooltip(p, lang)) {
+            val (ax, a, hover) = card(ui, "raid:$column:${p.slot.key}", i, x, y, w, h, accentOf(p.slot), withSpawn(SetText.raidPickTooltip(p, lang), p.slot)) {
                 if (!full && p.slot.key !in keys) {
                     track("first_pick")
                     request(keys = keys + p.slot.key)
@@ -1538,7 +1627,8 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
             val tx = ax + 27
             val score = "${p.score}%"
             ui.textRight(score, ax + w - 4, y + 3, Palette.alpha(Palette.RAID, a))
-            ui.text(ui.fit(p.slot.name, w - 34 - ui.width(score)), tx, y + 3, Palette.alpha(accentOf(p.slot), a))
+            val badgeW = drawHereBadge(ui, p.slot, ax + w - 8 - ui.width(score), y + 3, a)
+            ui.text(ui.fit(p.slot.name, w - 34 - ui.width(score) - badgeW), tx, y + 3, Palette.alpha(accentOf(p.slot), a))
 
             // Barra da nota cresce ate o valor.
             val barW = w - 31
@@ -1633,6 +1723,7 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
     /** Time do treinador, quem do seu time responde a cada um, e os melhores counters. */
     private fun trainerDetail(ui: Ui, s: BuilderState, tv: dev.thal.teambuilder.core.TrainerView, top: Int) {
         ui.panel(pad, top, leftWidth, 18, Palette.mix(Palette.CARD, Palette.RAID, 0.10f), Palette.RAID)
+        anchor("trainer_header", pad, top, leftWidth, 18)
         var hx = pad + 5
         if (tv.defeated) {
             ui.text("✔", hx, top + 5, Palette.GOOD)
@@ -1665,6 +1756,7 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
         val gap = 3
         val ew = (leftWidth - gap * 5) / 6
         val eh = 40
+        anchor("trainer_enemies", pad, ey, leftWidth, eh)
         for ((i, e) in tv.enemies.withIndex()) {
             val x = pad + i * (ew + gap)
             val answered = e.answer.isNotEmpty()
@@ -1681,6 +1773,14 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
             if (e.item.isNotEmpty()) tip.append("\n").append(Component.literal(t("label.item") + ": ").withStyle(ChatFormatting.GRAY)).append(SetText.item(e.item))
             if (e.ability.isNotEmpty()) tip.append("\n").append(Component.literal(t("label.ability") + ": ").withStyle(ChatFormatting.GRAY)).append(SetText.ability(e.ability))
             if (e.nature.isNotEmpty()) tip.append("\n").append(Component.literal(t("label.nature") + ": ").withStyle(ChatFormatting.GRAY)).append(SetText.nature(e.nature))
+            if (e.dealt.isNotEmpty()) {
+                tip.append("\n\n").append(Component.literal(t("damage.title")).withStyle(ChatFormatting.GOLD))
+                for (d in e.dealt) tip.append("\n").append(damageLine(d))
+            }
+            e.taken?.let { d ->
+                tip.append("\n").append(Component.literal(t("damage.taken", d.target) + " ").withStyle(ChatFormatting.GRAY))
+                    .append(damageLine(d, showAttacker = false))
+            }
             if (e.speed > 0) {
                 tip.append("\n\n").append(Component.literal(t("speed.enemy", e.speed)).withStyle(ChatFormatting.GOLD))
                 if (e.faster.isNotEmpty()) tip.append("\n").append(Component.literal(t("speed.faster", e.faster.joinToString(", "))).withStyle(ChatFormatting.GREEN))
@@ -1717,10 +1817,33 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
         // Counters.
         val listTop = ey + eh + 4
         val w = columnWidth()
+        anchor("trainer_counters", pad, listTop - 1, leftWidth, bodyBottom - listTop + 1)
         ui.text(t("column.pc_upper"), pad, listTop, Palette.OWNED, 0.75f)
         ui.text(t("column.all_upper"), pad + w + 4, listTop, Palette.CATALOG, 0.75f)
         counterColumn(ui, "pc", pad, listTop + 9, w, tv.pcPicks, tv.enemyLevel)
         counterColumn(ui, "all", pad + w + 4, listTop + 9, w, tv.allPicks, tv.enemyLevel)
+    }
+
+    /** "Pikachu · Thunderbolt 45–53% (2 golpes)"; derrubar de uma vez fica em verde. */
+    private fun damageLine(d: dev.thal.teambuilder.core.DamageView, showAttacker: Boolean = true): MutableComponent {
+        val range = dev.thal.teambuilder.core.DamageRange(d.move, d.min, d.max)
+        val hits = range.hits
+        val ko = when {
+            hits.last <= 1 -> t("damage.ohko")
+            hits.first == hits.last -> t("damage.hits", hits.first)
+            hits.last >= 99 -> t("damage.hits_plus", hits.first)
+            else -> t("damage.hits_range", hits.first, hits.last)
+        }
+        val color = when {
+            hits.first <= 1 -> ChatFormatting.GREEN
+            hits.first <= 2 -> ChatFormatting.YELLOW
+            else -> ChatFormatting.GRAY
+        }
+        val out = Component.empty()
+        if (showAttacker) out.append(Component.literal(d.attacker + " · ").withStyle(ChatFormatting.WHITE))
+        return out.append(SetText.move(d.move))
+            .append(Component.literal(" ${d.min}–${d.max}% ").withStyle(color))
+            .append(Component.literal("($ko)").withStyle(ChatFormatting.DARK_GRAY))
     }
 
     private fun readinessColor(p: Int) = when {
@@ -1766,7 +1889,7 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
             val underLevel = p.slot.owned && p.slot.level > 0 && p.slot.level < enemyLevel - 2
             if (underLevel) tip.append("\n").append(Component.literal(t("counter.low_level", p.slot.level, enemyLevel)).withStyle(ChatFormatting.RED))
             tip.append("\n\n").append(Component.literal(t("tip.click_add")).withStyle(ChatFormatting.DARK_GRAY))
-            val (ax, a, hover) = card(ui, "counter:$column:${p.slot.key}", i, x, y, w, h, accentOf(p.slot), tip) {
+            val (ax, a, hover) = card(ui, "counter:$column:${p.slot.key}", i, x, y, w, h, accentOf(p.slot), withSpawn(tip, p.slot)) {
                 if (keys.size < 6 && p.slot.key !in keys) {
                     track("first_pick")
                     request(keys = keys + p.slot.key)
@@ -1785,6 +1908,7 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
                 ui.textRight(lv, ax + w - 8 - ui.width(score), y + 4, Palette.alpha(Palette.BAD, a), 0.75f)
                 nameRoom -= ui.width(lv, 0.75f) + 4
             }
+            nameRoom -= drawHereBadge(ui, p.slot, ax + w - 8 - ui.width(score), y + 3, a)
             ui.text(ui.fit(p.slot.name, nameRoom), tx, y + 3, Palette.alpha(accentOf(p.slot), a))
             ui.text(ui.fit(t("trainer.handles", p.handles.joinToString().ifEmpty { "-" }), w - 32, 0.75f), tx, y + 13, Palette.alpha(Palette.MUTED, a), 0.75f)
             val barW = w - 31
@@ -1889,7 +2013,7 @@ class TeamBuilderScreen(private var startTrainer: String? = null) : Screen(Compo
             ui.text(ui.fit(slot.info, x + w - after - 8, 0.75f), after + 3, y + 12, Palette.FAINT, 0.75f)
             val tip = Component.literal(slot.name).append("\n").append(Component.literal(slot.info).withStyle(ChatFormatting.GRAY))
                 .append("\n\n").append(Component.literal(if (raidMode) t("search.use_as_boss") else t("tip.click_add")).withStyle(ChatFormatting.DARK_GRAY))
-            ui.hit(x + 2, y, w - 4, rowH - 1, tip) { pickSearch(slot) }
+            ui.hit(x + 2, y, w - 4, rowH - 1, withSpawn(tip, slot)) { pickSearch(slot) }
         }
     }
 

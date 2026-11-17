@@ -29,6 +29,35 @@ data class BuilderRequest(
     val trainer: String? = null,
 )
 
+/** Chance de aparecer agora no bioma do jogador, num tipo de lugar ("grounded", "surface"...). */
+data class SpawnChanceView(val type: String, val chance: Double)
+
+/** Um dos biomas onde a especie mais aparece. */
+data class SpawnBiomeView(val biome: String, val type: String, val chance: Double)
+
+/**
+ * Onde capturar uma especie que o jogador nao tem.
+ *
+ * @param natural false quando ela nao aparece na natureza (lendarios de evento, megas, evolucoes)
+ * @param biome bioma onde o jogador esta
+ * @param here chance agora, neste bioma e nesta hora, por tipo de lugar
+ * @param otherTime aparece neste bioma, mas em outro horario
+ * @param times faixas de horario quando todas as regras dela tem horario ("night", "day"...)
+ */
+data class SpawnView(
+    val natural: Boolean = true,
+    val biome: String = "",
+    val here: List<SpawnChanceView> = emptyList(),
+    val otherTime: Boolean = false,
+    val best: List<SpawnBiomeView> = emptyList(),
+    val biomeCount: Int = 0,
+    val anywhere: Boolean = false,
+    val minLevel: Int = 0,
+    val maxLevel: Int = 0,
+    val bucket: String = "",
+    val times: List<String> = emptyList(),
+)
+
 /** Uma forma alternativa do Pokemon de um slot (normal, Mega X, Mega Y...). */
 data class FormView(val key: String, val label: String, val mega: Boolean)
 
@@ -50,6 +79,8 @@ data class SlotView(
     val forms: List<FormView> = emptyList(),
     /** Esta no party agora (so para Pokemon do jogador). */
     val inParty: Boolean = false,
+    /** Onde capturar (so para especies que o jogador nao tem). */
+    val spawn: SpawnView? = null,
     /** Habilidade considerada na defesa (Levitate, Flash Fire...), para a tabela de tipos no hover. */
     val ability: String = "",
 )
@@ -162,7 +193,14 @@ data class TrainerEnemyView(
     val slower: List<String> = emptyList(),
     /** A resposta ([answer]) ataca antes (1), depois (-1) ou empata/sem time (0). */
     val answerFaster: Int = 0,
+    /** Quanto os membros do seu time tiram dele (os 3 que mais tiram). */
+    val dealt: List<DamageView> = emptyList(),
+    /** Quanto ele tira da sua resposta. */
+    val taken: DamageView? = null,
 )
+
+/** Dano estimado de um golpe, em % do HP do alvo. */
+data class DamageView(val attacker: String, val target: String, val move: String, val min: Int, val max: Int)
 
 data class CounterView(val slot: SlotView, val score: Int, val handles: List<String>)
 

@@ -103,7 +103,7 @@ Passe o mouse em quase tudo: os tooltips trazem os detalhes, com os tipos colori
 
 ### Tutorial
 
-Na primeira vez que a tela abre, um tour passo a passo destaca uma parte da tela por vez (slots, nota, botões, abas, busca e painel do set), com um balão curto explicando cada uma. Na primeira visita a cada aba aparece uma dica de 1 ou 2 passos só daquela aba. Enter ou as setas avançam e Esc pula. O botão **?** no canto (ou **F1**) reabre o tour quando quiser. O que já foi visto fica salvo em `config/cobblemon_team_builder/client.json`.
+Na primeira vez que a tela abre, um tour passo a passo destaca uma parte da tela por vez (slots, nota, botões, abas, busca e painel do set), com um balão curto explicando cada uma. Na primeira visita a cada aba aparece uma dica de 1 a 3 passos só daquela aba. Ao escolher um treinador, uma dica explica o "% pronto", a seta de velocidade, o dano estimado e os counters. Quando uma versão nova muda a dica de uma aba, ela aparece de novo uma vez, marcada como **Novidade**. Enter ou as setas avançam e Esc pula. O botão **?** no canto (ou **F1**) reabre o tour quando quiser. O que já foi visto fica salvo em `config/cobblemon_team_builder/client.json`.
 
 ### Conquistas
 
@@ -127,6 +127,13 @@ As 5 melhores opções para o próximo slot, em duas colunas: **do seu PC** e **
 - um alerta quando ele acumula uma fraqueza que o time já tem.
 
 Os tipos aparecem como ícones.
+
+**Onde capturar.** As espécies que você não tem mostram no card **"aqui X%"** quando aparecem no bioma onde você está agora, no horário atual. Ao passar o mouse aparecem:
+- a chance aqui agora, por lugar (em terra, na água, debaixo d'água...);
+- os biomas onde ela mais aparece, com a chance em cada um;
+- a faixa de nível, a raridade (comum, incomum, raro, ultra raro) e o horário, quando ela só aparece de dia ou de noite.
+
+A conta segue o sorteio do Cobblemon. Primeiro ele sorteia a raridade, pelo peso de cada uma. Depois sorteia o Pokémon dentro dela, entre os que valem naquele bioma, horário e tipo de lugar. Inclui os spawns dos datapacks do modpack. Condições finas, como altura, luz, céu aberto e estruturas, ficam de fora, então é uma estimativa. Vale para as sugestões, os times, os counters de raid e de treinador, a busca e os slots.
 
 Embaixo da coluna do PC aparecem as **evoluções no seu PC**: Pokémon que você já tem e que, evoluídos, entrariam entre as melhores sugestões (ex.: "seu Machop Nv 20 → Machamp, nível 28, +2,1"). Cada um diz como evoluir (nível, item, troca ou amizade), avisa se o nível passa do seu limite no RCT e considera até duas evoluções à frente. Espécies que você já tem evoluídas não aparecem.
 
@@ -170,6 +177,8 @@ Lê os times reais do Radical Cobblemon Trainers: cerca de 1.700 treinadores, in
 **% pronto.** Cada treinador mostra quão pronto o seu time atual está contra ele (verde a partir de 70%, amarelo a partir de 40%). Para cada Pokémon dele, a nota olha se alguém do seu time bate com vantagem, aguenta os golpes dele e está no nível dele. O tooltip mostra o nível médio dos dois lados e quem ficou sem resposta.
 
 **Quem é mais rápido.** Cada Pokémon do treinador mostra a velocidade real dele, usando os IVs, EVs e a natureza do arquivo do RCT, além do Choice Scarf. Também mostra quem do seu time é mais rápido ou mais lento que ele, já com o nível, IVs, EVs, natureza e item do seu exemplar. No card, a seta ao lado da resposta indica se ela ataca antes (▲ verde) ou depois (▼ amarelo) do adversário.
+
+**Dano estimado.** O tooltip de cada Pokémon do treinador mostra quanto os 3 membros do seu time que mais batem tiram dele, com o golpe, a faixa em % do HP e quantos golpes precisam para derrubar (ex.: "Pikachu · Thunderbolt 45–53% (2 golpes)"). Mostra também quanto ele tira da sua resposta. A conta usa a fórmula dos jogos: nível, atributos reais com IV, EV e natureza (dos dois lados), STAB, efetividade de tipo (com Levitate, Flash Fire etc.) e a variação de 85% a 100%. Ficam de fora crítico, itens, clima e bônus de habilidade.
 
 **Nível importa.** Os counters do seu PC agora levam o nível do treinador em conta: um Pokémon bem abaixo dele cai na lista e aparece com o nível em vermelho.
 
