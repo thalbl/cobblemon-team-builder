@@ -3,7 +3,6 @@ package dev.thal.teambuilder.client
 import com.cobblemon.mod.common.api.pokemon.PokemonSpecies
 import com.cobblemon.mod.common.api.types.ElementalTypes
 import com.cobblemon.mod.common.client.gui.TypeIcon
-import com.cobblemon.mod.common.client.gui.drawProfilePokemon
 import com.cobblemon.mod.common.client.render.models.blockbench.FloatingState
 import com.cobblemon.mod.common.entity.PoseType
 import com.cobblemon.mod.common.pokemon.RenderablePokemon
@@ -281,7 +280,7 @@ object PokemonModels {
             pose.translate(x + size / 2.0, y - (zoom - 1f) * size / 2.0, 0.0)
             val scale = size / 10f * zoom
             pose.scale(scale, scale, 1f)
-            drawProfilePokemon(
+            ProfileRenderer.draw(
                 RenderablePokemon(resolved, aspects.toSet()),
                 pose,
                 Quaternionf().fromEulerXYZDegrees(Vector3f(13f, yaw, 0f)),
@@ -305,5 +304,51 @@ object PokemonModels {
         states.clear()
         species.clear()
         broken.clear()
+    }
+}
+
+/**
+ * Chama o drawProfilePokemon do Cobblemon em qualquer versao. A assinatura mudou entre a 1.7
+ * e a 1.8 (a 1.8 acrescentou tipo de transformacao, cor, cabeca e luz), mas os 7 primeiros
+ * parametros continuam iguais e o resto tem valor padrao: chamamos a variante "$default" do
+ * Kotlin, passando so os 7 e marcando os demais como "use o padrao".
+ */
+object ProfileRenderer {
+    private const val FIXED = 7
+
+    private val method: java.lang.reflect.Method by lazy {
+        Class.forName("com.cobblemon.mod.common.client.gui.PokemonGuiUtilsKt").methods.first {
+            it.name == "drawProfilePokemon\$default" && it.parameterTypes.firstOrNull() == RenderablePokemon::class.java
+        }
+    }
+
+    fun draw(
+        pokemon: RenderablePokemon, pose: com.mojang.blaze3d.vertex.PoseStack, rotation: Quaternionf,
+        poseType: PoseType, state: FloatingState, partialTick: Float, scale: Float,
+    ) {
+        val types = method.parameterTypes
+        // Ultimos dois: mascara de padroes e um marcador (null).
+        val real = types.size - 2
+        val args = arrayOfNulls<Any>(types.size)
+        args[0] = pokemon; args[1] = pose; args[2] = rotation; args[3] = poseType
+        args[4] = state; args[5] = partialTick; args[6] = scale
+        var mask = 0
+        for (i in FIXED until real) {
+            args[i] = when (types[i]) {
+                java.lang.Float.TYPE -> 0f
+                java.lang.Integer.TYPE -> 0
+                java.lang.Boolean.TYPE -> false
+                java.lang.Double.TYPE -> 0.0
+                else -> null
+            }
+            mask = mask or (1 shl i)
+        }
+        args[real] = mask
+        args[real + 1] = null
+        try {
+            method.invoke(null, *args)
+        } catch (e: java.lang.reflect.InvocationTargetException) {
+            throw e.targetException
+        }
     }
 }

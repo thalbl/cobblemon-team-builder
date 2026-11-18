@@ -61,18 +61,18 @@ No jogo, aperte **H** para abrir.
 |---|---|---|
 | Minecraft | 1.21.1 | 1.21.1 |
 | Java | 21 | 21 |
-| [Fabric Loader](https://fabricmc.net/use/) | 0.17.2 | 0.17.2 |
-| [Fabric API](https://modrinth.com/mod/fabric-api) | 0.116.6+1.21.1 | 0.116.14+1.21.1 |
-| [Fabric Language Kotlin](https://modrinth.com/mod/fabric-language-kotlin) | 1.13.6+kotlin.2.2.20 | 1.13.13+kotlin.2.4.10 |
-| [Cobblemon](https://modrinth.com/mod/cobblemon) | 1.7.3 | 1.7.3+1.21.1 |
+| [Fabric Loader](https://fabricmc.net/use/) | 0.17.2 | 0.17.2 e 0.18.4 |
+| [Fabric API](https://modrinth.com/mod/fabric-api) | 0.116.6+1.21.1 | 0.116.14 e 0.116.18 |
+| [Fabric Language Kotlin](https://modrinth.com/mod/fabric-language-kotlin) | 1.13.6+kotlin.2.2.20 | 1.13.13 e 1.14.2+kotlin.2.4.21 |
+| [Cobblemon](https://modrinth.com/mod/cobblemon) | 1.7.3 | 1.7.3 e 1.8.4 |
 
 **Opcionais** (cada uma liga um recurso; sem elas o resto funciona normalmente):
 
 | Mod | O que libera | Testado com |
 |---|---|---|
-| [Cobblemon Raid Dens](https://modrinth.com/mod/cobblemonraiddens) | detecta sozinho o chefe da raid mais próxima (sem ele, você digita o chefe) | 0.11.3+1.21.1 |
-| [Radical Cobblemon Trainers](https://modrinth.com/mod/rctmod) | aba **Treinadores** (times de líderes, Elite 4, campeões, equipes vilãs...) | 0.18.1-beta |
-| [Cobblemon: Mega Showdown](https://modrinth.com/mod/cobblemon-mega-showdown) | formas **mega** para sugerir e alternar (o Cobblemon não tem megas sozinho) | 1.8.4+1.7.3+1.21.1 |
+| [Cobblemon Raid Dens](https://modrinth.com/mod/cobblemonraiddens) | detecta sozinho o chefe da raid mais próxima (sem ele, você digita o chefe) | 0.11.3 e 0.13.5 |
+| [Radical Cobblemon Trainers](https://modrinth.com/mod/rctmod) | aba **Treinadores** (times de líderes, Elite 4, campeões, equipes vilãs...) | 0.18.1 e 0.19.2-beta |
+| [Cobblemon: Mega Showdown](https://modrinth.com/mod/cobblemon-mega-showdown) | formas **mega** para sugerir e alternar (o Cobblemon não tem megas sozinho) | 1.8.4+1.7.3 e 1.3.3+1.8.4 |
 
 ### Em servidor
 
