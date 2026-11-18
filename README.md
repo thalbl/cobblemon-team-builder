@@ -2,7 +2,7 @@
 
 **Monte times competitivos com os Pokémon que você já tem.**
 
-O Cobblemon Team Builder é um mod Fabric para Minecraft 1.21.1 + Cobblemon 1.7. Ele lê o seu party e o seu PC, compara com as estatísticas de uso reais do Smogon e mostra o que vale a pena:
+O Cobblemon Team Builder é um mod Fabric para Minecraft 1.21.1 + Cobblemon 1.8. Ele lê o seu party e o seu PC, compara com as estatísticas de uso reais do Smogon e mostra o que vale a pena:
 - quem colocar no próximo slot;
 - que função cada membro cumpre;
 - quais golpes, item, natureza e EVs usar;
@@ -57,22 +57,24 @@ No jogo, aperte **H** para abrir.
 
 **Obrigatórias** (o jogo não abre sem elas):
 
+> Ainda no Cobblemon 1.7.3? Use a [versão 0.8.1](https://github.com/thalbl/cobblemon-team-builder/releases/tag/v0.8.1), a última que funciona nas duas versões.
+
 | Mod | Versão mínima | Testado com |
 |---|---|---|
 | Minecraft | 1.21.1 | 1.21.1 |
 | Java | 21 | 21 |
-| [Fabric Loader](https://fabricmc.net/use/) | 0.17.2 | 0.17.2 e 0.18.4 |
-| [Fabric API](https://modrinth.com/mod/fabric-api) | 0.116.6+1.21.1 | 0.116.14 e 0.116.18 |
-| [Fabric Language Kotlin](https://modrinth.com/mod/fabric-language-kotlin) | 1.13.6+kotlin.2.2.20 | 1.13.13 e 1.14.2+kotlin.2.4.21 |
-| [Cobblemon](https://modrinth.com/mod/cobblemon) | 1.7.3 | 1.7.3 e 1.8.4 |
+| [Fabric Loader](https://fabricmc.net/use/) | 0.17.2 | 0.19.5 |
+| [Fabric API](https://modrinth.com/mod/fabric-api) | 0.116.6+1.21.1 | 0.116.18+1.21.1 |
+| [Fabric Language Kotlin](https://modrinth.com/mod/fabric-language-kotlin) | 1.14.2+kotlin.2.4.21 | 1.14.2+kotlin.2.4.21 |
+| [Cobblemon](https://modrinth.com/mod/cobblemon) | 1.8.4 | 1.8.4+1.21.1 |
 
 **Opcionais** (cada uma liga um recurso; sem elas o resto funciona normalmente):
 
 | Mod | O que libera | Testado com |
 |---|---|---|
-| [Cobblemon Raid Dens](https://modrinth.com/mod/cobblemonraiddens) | detecta sozinho o chefe da raid mais próxima (sem ele, você digita o chefe) | 0.11.3 e 0.13.5 |
-| [Radical Cobblemon Trainers](https://modrinth.com/mod/rctmod) | aba **Treinadores** (times de líderes, Elite 4, campeões, equipes vilãs...) | 0.18.1 e 0.19.2-beta |
-| [Cobblemon: Mega Showdown](https://modrinth.com/mod/cobblemon-mega-showdown) | formas **mega** para sugerir e alternar (o Cobblemon não tem megas sozinho) | 1.8.4+1.7.3 e 1.3.3+1.8.4 |
+| [Cobblemon Raid Dens](https://modrinth.com/mod/cobblemonraiddens) | detecta sozinho o chefe da raid mais próxima (sem ele, você digita o chefe) | 0.13.5+1.21.1 |
+| [Radical Cobblemon Trainers](https://modrinth.com/mod/rctmod) | aba **Treinadores** (times de líderes, Elite 4, campeões, equipes vilãs...) | 0.19.2-beta |
+| [Cobblemon: Mega Showdown](https://modrinth.com/mod/cobblemon-mega-showdown) | formas **mega** para sugerir e alternar (o Cobblemon não tem megas sozinho) | 1.3.3+1.8.4+1.21.1 |
 
 ### Em servidor
 
@@ -341,7 +343,7 @@ Sugestões, times completos e trocas são todas formas de comparar essa mesma no
 
 ### Compilar
 
-Precisa de um JDK 21 ou mais novo:
+Precisa de um **JDK 25** (o Loom 1.18, necessário para ler o Cobblemon 1.8 feito em Kotlin 2.4, exige Java 25 para rodar o build). O mod gerado continua rodando no Java 21 do jogo:
 
 ```
 ./gradlew build

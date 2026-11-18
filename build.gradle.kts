@@ -1,8 +1,8 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
-    id("fabric-loom") version "1.11-SNAPSHOT"
-    kotlin("jvm") version "2.2.20"
+    id("fabric-loom") version "1.18.4"
+    kotlin("jvm") version "2.4.21"
 }
 
 version = property("mod_version") as String
